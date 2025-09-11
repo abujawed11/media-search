@@ -104,43 +104,93 @@ class JackettProvider {
       
       // Add timeout to prevent hanging
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
       const response = await fetch(downloadUrl, { 
-        redirect: 'manual',
+        redirect: 'follow', // Follow redirects but check headers too
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
       });
       
       clearTimeout(timeoutId);
       
-      // Check if it's a redirect to a magnet link
-      const location = response.headers.get('location');
-      if (location && location.startsWith('magnet:')) {
-        console.log(`[JACKETT] Found magnet via redirect: ${location.substring(0, 80)}...`);
-        magnetCache.set(downloadUrl, location);
-        return location;
+      // Check final URL after redirects
+      if (response.url && response.url.startsWith('magnet:')) {
+        console.log(`[JACKETT] Found magnet via final URL: ${response.url.substring(0, 80)}...`);
+        magnetCache.set(downloadUrl, response.url);
+        return response.url;
       }
       
-      // If it's a direct response, check the body
+      // Check if it's a direct response, look in body
       if (response.ok) {
         const text = await response.text();
-        // Look for magnet link in the response
-        const magnetMatch = text.match(/magnet:\?[^"'\s<>]+/);
-        if (magnetMatch) {
-          console.log(`[JACKETT] Found magnet in response body: ${magnetMatch[0].substring(0, 80)}...`);
-          magnetCache.set(downloadUrl, magnetMatch[0]);
-          return magnetMatch[0];
+        
+        // Look for various magnet link patterns
+        const magnetPatterns = [
+          /magnet:\?[^"'\s<>]+/g,
+          /href=['\"]?(magnet:\?[^"'\s>]+)/g,
+          /"(magnet:\?[^"]+)"/g
+        ];
+        
+        for (const pattern of magnetPatterns) {
+          const matches = text.match(pattern);
+          if (matches && matches.length > 0) {
+            let magnet = matches[0];
+            // Clean up the magnet link if it includes href= prefix
+            if (magnet.includes('href=')) {
+              magnet = magnet.replace(/.*href=['\"]?/, '').replace(/['\"].*/, '');
+            }
+            if (magnet.startsWith('magnet:')) {
+              console.log(`[JACKETT] Found magnet in response body: ${magnet.substring(0, 80)}...`);
+              magnetCache.set(downloadUrl, magnet);
+              return magnet;
+            }
+          }
+        }
+        
+        // Special handling for certain tracker patterns
+        if (text.includes('limetorrents') || downloadUrl.includes('limetorrents')) {
+          // Look for limetorrents specific patterns
+          const limePattern = /onclick="location\.href='(magnet:[^']+)'/;
+          const limeMatch = text.match(limePattern);
+          if (limeMatch) {
+            console.log(`[JACKETT] Found limetorrents magnet: ${limeMatch[1].substring(0, 80)}...`);
+            magnetCache.set(downloadUrl, limeMatch[1]);
+            return limeMatch[1];
+          }
+        }
+        
+        // Additional pattern for JavaScript-based magnet links
+        const jsPatterns = [
+          /window\.location\s*=\s*['"](magnet:[^'"]+)['"]/g,
+          /location\.href\s*=\s*['"](magnet:[^'"]+)['"]/g,
+          /document\.location\s*=\s*['"](magnet:[^'"]+)['"]/g
+        ];
+        
+        for (const pattern of jsPatterns) {
+          const matches = text.match(pattern);
+          if (matches && matches.length > 0) {
+            const magnetMatch = matches[0].match(/magnet:[^'"]+/);
+            if (magnetMatch) {
+              console.log(`[JACKETT] Found JS magnet: ${magnetMatch[0].substring(0, 80)}...`);
+              magnetCache.set(downloadUrl, magnetMatch[0]);
+              return magnetMatch[0];
+            }
+          }
         }
       }
       
-      console.log(`[JACKETT] No magnet found, status: ${response.status}`);
+      console.log(`[JACKETT] No magnet found, status: ${response.status}, content-type: ${response.headers.get('content-type')}`);
       magnetCache.set(downloadUrl, null);
       return null;
     } catch (error) {
-      console.log(`[JACKETT] Error resolving magnet: ${error.message}`);
+      if (error.name === 'AbortError') {
+        console.log(`[JACKETT] Request timeout resolving magnet`);
+      } else {
+        console.log(`[JACKETT] Error resolving magnet: ${error.message}`);
+      }
       magnetCache.set(downloadUrl, null);
       return null;
     }
