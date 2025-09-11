@@ -9,6 +9,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [sendState, setSendState] = useState("");
   const [copiedMagnet, setCopiedMagnet] = useState("");
+  const [provider, setProvider] = useState("prowlarr");
 
   const totalSeeders = useMemo(
     () => rows.reduce((a, r) => a + (r.seeders ?? 0), 0),
@@ -19,7 +20,7 @@ export default function App() {
     try {
       setError(null);
       setLoading(true);
-      const p = new URLSearchParams({ q });
+      const p = new URLSearchParams({ q, provider });
       if (cat) p.set("cat", cat);
       const r = await fetch(`/api/search?${p.toString()}`);
       const data = await r.json();
@@ -69,6 +70,49 @@ export default function App() {
     <div className="layout">
       <h1 className="title">Torrent Meta-Search</h1>
 
+      {/* Provider Switch */}
+      <div className="provider-switch" style={{ marginBottom: '20px', textAlign: 'center' }}>
+        <label style={{ marginRight: '20px' }}>
+          <input
+            type="radio"
+            name="provider"
+            value="prowlarr"
+            checked={provider === "prowlarr"}
+            onChange={(e) => setProvider(e.target.value)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ 
+            padding: '8px 16px', 
+            backgroundColor: provider === 'prowlarr' ? '#3b82f6' : '#e5e7eb',
+            color: provider === 'prowlarr' ? 'white' : '#374151',
+            borderRadius: '8px',
+            cursor: 'pointer'
+          }}>
+            🔍 Prowlarr
+          </span>
+        </label>
+        
+        <label>
+          <input
+            type="radio"
+            name="provider"
+            value="jackett"
+            checked={provider === "jackett"}
+            onChange={(e) => setProvider(e.target.value)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ 
+            padding: '8px 16px', 
+            backgroundColor: provider === 'jackett' ? '#3b82f6' : '#e5e7eb',
+            color: provider === 'jackett' ? 'white' : '#374151',
+            borderRadius: '8px',
+            cursor: 'pointer'
+          }}>
+            🎯 Jackett
+          </span>
+        </label>
+      </div>
+
       <div className="controls">
         <input
           value={q}
@@ -92,7 +136,7 @@ export default function App() {
       {error && <div className="error">{error}</div>}
 
       <div className="meta">
-        {rows.length ? `${rows.length} results • total seeders ~ ${totalSeeders}` : null}
+        {rows.length ? `${rows.length} results • total seeders ~ ${totalSeeders} • using ${provider}` : null}
         {sendState && <span className="status">{sendState}</span>}
       </div>
 
