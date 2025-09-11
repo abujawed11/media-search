@@ -33,7 +33,7 @@ export default function App() {
   });
 
   // Custom hooks
-  const { loading, error, allResults, search, sendToQB, copyMagnet } = useTorrentSearch();
+  const { loading, error, allResults, search, sendToQB, copyMagnet, resolveMagnet } = useTorrentSearch();
   const { availableTrackers, filteredAndSortedRows } = useFiltering(allResults, filters);
 
   // Update rows when filtered results change
@@ -56,6 +56,10 @@ export default function App() {
 
   const handleCopyMagnet = (magnet) => {
     copyMagnet(magnet, setCopiedMagnet);
+  };
+
+  const handleResolveMagnet = (downloadUrl) => {
+    resolveMagnet(downloadUrl, provider, setCopiedMagnet);
   };
 
   return (
@@ -120,6 +124,7 @@ export default function App() {
               loading={loading}
               copiedMagnet={copiedMagnet}
               onCopyMagnet={handleCopyMagnet}
+              onResolveMagnet={handleResolveMagnet}
               onSendToQB={handleSendToQB}
             />
           </div>

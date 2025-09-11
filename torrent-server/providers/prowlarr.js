@@ -46,32 +46,13 @@ class ProwlarrProvider {
         magnet = x.guid;
       }
       
-      // Check if we have Prowlarr download URLs to resolve
+      // Store the download URL for on-demand resolution
       const downloadUrl = x.link && x.link.includes('download?') ? x.link : 
                          x.magnetUrl && x.magnetUrl.includes('download?') ? x.magnetUrl : 
                          x.downloadUrl || null;
       
-      if (downloadUrl && !magnet) {
-        console.log(`[PROWLARR] Resolving download URL for: ${x.title}`);
-        const resolvedMagnet = await this.resolveDownloadUrlToMagnet(downloadUrl);
-        if (resolvedMagnet) {
-          magnet = resolvedMagnet;
-        }
-      }
-      
-      // If still no magnet, try the link field as a fallback
-      if (!magnet && x.link && !x.link.includes('download?')) {
-        if (x.link.startsWith('magnet:')) {
-          magnet = x.link;
-        } else {
-          // Try resolving the link as it might redirect to a magnet
-          console.log(`[PROWLARR] Trying to resolve link as potential magnet for: ${x.title}`);
-          const resolvedMagnet = await this.resolveDownloadUrlToMagnet(x.link);
-          if (resolvedMagnet) {
-            magnet = resolvedMagnet;
-          }
-        }
-      }
+      // Skip magnet resolution during search for performance
+      // We'll resolve magnets on-demand when user clicks copy button
       
       return this.normalizeResult({
         title: String(x.title || ""),
@@ -81,7 +62,7 @@ class ProwlarrProvider {
         tracker: String(x.indexer || ""),
         published: String(x.publishDate || ""),
         magnet,
-        link: x.link || null,
+        link: downloadUrl || x.link || null, // Store download URL for on-demand resolution
       });
     }));
 

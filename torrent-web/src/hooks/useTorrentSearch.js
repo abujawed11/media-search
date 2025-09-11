@@ -62,12 +62,39 @@ export function useTorrentSearch() {
     }
   };
 
+  const resolveMagnet = async (downloadUrl, provider, setCopiedMagnet) => {
+    try {
+      setCopiedMagnet("resolving...");
+      
+      const response = await fetch("/api/resolve-magnet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ downloadUrl, provider }),
+      });
+      
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || "Failed to resolve");
+      
+      if (result.magnet) {
+        await navigator.clipboard.writeText(result.magnet);
+        setCopiedMagnet(result.magnet);
+        setTimeout(() => setCopiedMagnet(""), 2000);
+      } else {
+        throw new Error("No magnet link returned");
+      }
+    } catch (e) {
+      setCopiedMagnet("");
+      alert("Failed to resolve magnet link: " + String(e?.message || e));
+    }
+  };
+
   return {
     loading,
     error,
     allResults,
     search,
     sendToQB,
-    copyMagnet
+    copyMagnet,
+    resolveMagnet
   };
 }

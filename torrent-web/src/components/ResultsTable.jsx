@@ -14,8 +14,46 @@ export default function ResultsTable({
   loading, 
   copiedMagnet, 
   onCopyMagnet, 
+  onResolveMagnet,
   onSendToQB 
 }) {
+  const handleTorrentFileClick = async (e, torrentUrl) => {
+    e.preventDefault();
+    
+    try {
+      console.log('[FRONTEND] Requesting magnet extraction from .torrent file...');
+      
+      // Send the torrent URL to our backend to extract magnet
+      const response = await fetch('/api/extract-magnet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ torrentUrl }),
+      });
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const data = await response.json();
+      
+      if (data.magnet) {
+        console.log('[FRONTEND] Extracted magnet:', data.magnet.substring(0, 100) + '...');
+        // Copy the magnet link
+        onCopyMagnet(data.magnet);
+        alert('✅ Magnet link extracted and copied to clipboard!');
+      } else {
+        throw new Error(data.error || 'Could not extract magnet link');
+      }
+    } catch (error) {
+      console.error('[FRONTEND] Error extracting magnet:', error);
+      // Fallback: try to copy the original link and let user know
+      navigator.clipboard.writeText(torrentUrl).then(() => {
+        alert('⚠️ Could not extract magnet. Torrent URL copied to clipboard instead.');
+      }).catch(() => {
+        alert('❌ Could not extract magnet link. Please try downloading the .torrent file directly.');
+      });
+    }
+  };
   return (
     <div className="tableWrap">
       <table className="table">
@@ -47,6 +85,7 @@ export default function ResultsTable({
                 <td>{typeof r.published === 'object' ? JSON.stringify(r.published) : (r.published ? new Date(r.published).toLocaleString() : "-")}</td>
                 <td className="actions">
                   {r.magnet ? (
+                    // Already have magnet link
                     <>
                       <button 
                         onClick={() => onCopyMagnet(r.magnet)}
@@ -68,7 +107,52 @@ export default function ResultsTable({
                       </button>
                     </>
                   ) : r.link ? (
-                    <a href={r.link} className="link" title="Download .torrent file">📄 .torrent</a>
+                    // Need to resolve magnet or extract from torrent
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {r.link.includes('jackett_apikey') || r.link.includes('download?') ? (
+                        // This looks like a download URL that might resolve to magnet
+                        <button 
+                          onClick={() => onResolveMagnet(r.link)}
+                          className="link"
+                          title="Resolve magnet link on-demand"
+                          style={{ 
+                            background: 'none', 
+                            border: 'none', 
+                            color: '#3b82f6',
+                            cursor: 'pointer',
+                            padding: 0,
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          {copiedMagnet === "resolving..." ? '⏳ Resolving...' : '🧲 Get Magnet'}
+                        </button>
+                      ) : (
+                        // This looks like a direct .torrent file
+                        <button 
+                          onClick={(e) => handleTorrentFileClick(e, r.link)}
+                          className="link"
+                          title="Extract magnet from .torrent file"
+                          style={{ 
+                            background: 'none', 
+                            border: 'none', 
+                            color: '#3b82f6',
+                            cursor: 'pointer',
+                            padding: 0,
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          🧲 Extract
+                        </button>
+                      )}
+                      <a 
+                        href={r.link} 
+                        className="link" 
+                        title="Download .torrent file directly"
+                        style={{ fontSize: '0.8rem' }}
+                      >
+                        📄 Direct
+                      </a>
+                    </div>
                   ) : (
                     <span style={{ color: '#999' }}>No link</span>
                   )}

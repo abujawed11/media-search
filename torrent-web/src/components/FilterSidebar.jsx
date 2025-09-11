@@ -27,31 +27,23 @@ export default function FilterSidebar({
       {/* Provider Switch */}
       <div className="provider-switch">
         <h3>📡 Search Provider</h3>
-        <div className="provider-options">
-          <div className="provider-option">
+        <div className="toggle-switch-container">
+          <div className="toggle-switch">
             <input
-              type="radio"
-              name="provider"
-              value="prowlarr"
-              checked={provider === "prowlarr"}
-              onChange={(e) => onProviderChange(e.target.value)}
-              id="provider-prowlarr"
-            />
-            <label htmlFor="provider-prowlarr" className="provider-label">
-              🔍 Prowlarr
-            </label>
-          </div>
-          <div className="provider-option">
-            <input
-              type="radio"
-              name="provider"
-              value="jackett"
+              type="checkbox"
+              id="provider-toggle"
+              className="toggle-input"
               checked={provider === "jackett"}
-              onChange={(e) => onProviderChange(e.target.value)}
-              id="provider-jackett"
+              onChange={(e) => onProviderChange(e.target.checked ? "jackett" : "prowlarr")}
             />
-            <label htmlFor="provider-jackett" className="provider-label">
-              🎯 Jackett
+            <label htmlFor="provider-toggle" className="toggle-label">
+              <span className="toggle-slider">
+                <span className="toggle-button"></span>
+              </span>
+              <span className="toggle-text">
+                <span className="toggle-option left">🔍 Prowlarr</span>
+                <span className="toggle-option right">🎯 Jackett</span>
+              </span>
             </label>
           </div>
         </div>
