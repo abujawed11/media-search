@@ -82,7 +82,7 @@ app.get("/api/search", async (req, res) => {
         
         if (downloadUrl) {
           //console.log(`[DEBUG] Found Prowlarr download URL, resolving...`);
-          const resolvedMagnet = await resolveProwlarrMagnet(downloadUrl);
+          const resolvedMagnet = await resolveDownloadUrlToMagnet(downloadUrl);
           if (resolvedMagnet) {
             magnet = resolvedMagnet;
           }
@@ -96,12 +96,12 @@ app.get("/api/search", async (req, res) => {
         //console.log('---');
         
         return normalize({
-          title: x.title,
-          size: x.size,
+          title: String(x.title || ""),
+          size: Number(x.size || 0),
           seeders: x.seeders ?? null,
           leechers: x.leechers ?? null,
-          tracker: x.indexer ?? "",
-          published: x.publishDate ?? null,
+          tracker: String(x.indexer || ""),
+          published: String(x.publishDate || ""),
           magnet,
           link: x.link || null,
         });
@@ -120,34 +120,62 @@ app.get("/api/search", async (req, res) => {
       const xml = await r.text();
       const parsed = await parseStringPromise(xml, { explicitArray: false, mergeAttrs: true });
       const items = toArray(parsed?.rss?.channel?.item);
+      
+      // Debug: log the first raw Jackett result
+      if (items.length > 0) {
+        console.log('[RAW JACKETT DATA]', JSON.stringify(items[0], null, 2));
+      }
 
-      results = items.map((it) => {
+      // Process results and resolve magnet links
+      results = await Promise.all(items.map(async (it) => {
         const attrs = toArray(it["torznab:attr"]).reduce((a, b) => {
           if (b?.name) a[b.name] = b.value;
           return a;
         }, {});
         const encUrl = it?.enclosure?.url;
         const link = typeof it?.link === "string" ? it.link : null;
-        const magnet =
-          link?.startsWith("magnet:") ? link : encUrl?.startsWith("magnet:") ? encUrl : null;
+        let magnet = link?.startsWith("magnet:") ? link : encUrl?.startsWith("magnet:") ? encUrl : null;
         const torrent = encUrl && encUrl.startsWith("http") ? encUrl : null;
 
-        //console.log(`[DEBUG] Title: ${it?.title}`);
-        //console.log(`[DEBUG] Magnet: ${magnet ? magnet.substring(0, 80) + '...' : 'null'}`);
-        //console.log(`[DEBUG] Torrent: ${torrent || 'null'}`);
-        //console.log('---');
+        // If no magnet found, try resolving torrent URLs that might redirect to magnets
+        if (!magnet && torrent && torrent.includes('jackett_apikey')) {
+          console.log(`[DEBUG] No direct magnet found, trying to resolve Jackett URL...`);
+          magnet = await resolveDownloadUrlToMagnet(torrent); // Reuse the same function
+        }
+
+        // Extract tracker name properly (handle object or string)
+        let trackerName = "";
+        if (typeof it?.jackettindexer === "object" && it?.jackettindexer?._) {
+          trackerName = it.jackettindexer._;
+        } else if (typeof it?.jackettindexer === "string") {
+          trackerName = it.jackettindexer;
+        } else if (it?.indexer) {
+          trackerName = String(it.indexer);
+        }
+
+        // Get size from multiple possible sources
+        let size = Number(attrs.size || it?.size || it?.enclosure?.length || 0);
+        
+        console.log(`[DEBUG] Title: ${it?.title}`);
+        console.log(`[DEBUG] Size sources - attrs.size: ${attrs.size}, it.size: ${it.size}, enclosure.length: ${it?.enclosure?.length}`);
+        console.log(`[DEBUG] Final size: ${size}`);
+        console.log(`[DEBUG] Tracker: ${trackerName}`);
+        console.log(`[DEBUG] Original Magnet: ${link?.startsWith("magnet:") ? link.substring(0, 80) + '...' : 'null'}`);
+        console.log(`[DEBUG] Torrent URL: ${torrent ? torrent.substring(0, 80) + '...' : 'null'}`);
+        console.log(`[DEBUG] Resolved Magnet: ${magnet ? magnet.substring(0, 80) + '...' : 'null'}`);
+        console.log('---');
 
         return normalize({
-          title: it?.title,
-          size: Number(attrs.size || 0),
+          title: String(it?.title || ""),
+          size: size,
           seeders: asNum(attrs.seeders),
           leechers: asNum(attrs.peers ?? attrs.leechers),
-          tracker: it?.jackettindexer || it?.indexer || "",
-          published: it?.pubDate || null,
+          tracker: trackerName,
+          published: String(it?.pubDate || ""),
           magnet,
           link: torrent,
         });
-      });
+      }));
     }
 
     // de-dupe by (normalizedTitle + size); keep highest seeders
@@ -222,7 +250,7 @@ function normalize(x) {
   return { ...x, normTitle };
 }
 
-async function resolveProwlarrMagnet(downloadUrl) {
+async function resolveDownloadUrlToMagnet(downloadUrl) {
   // Check cache first
   const cached = magnetCache.get(downloadUrl);
   if (cached !== undefined) {
