@@ -11,14 +11,63 @@ import ResultsMeta from './components/ResultsMeta';
 import { useTorrentSearch } from './hooks/useTorrentSearch';
 import { useFiltering } from './hooks/useFiltering';
 
+// Helper functions for URL and localStorage management
+const getUrlParams = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    q: params.get('q') || '',
+    provider: params.get('provider') || 'prowlarr',
+    cat: params.get('cat') || ''
+  };
+};
+
+const updateUrl = (q, provider, cat) => {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (provider && provider !== 'prowlarr') params.set('provider', provider);
+  if (cat) params.set('cat', cat);
+
+  const newUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
+  window.history.replaceState({}, '', newUrl);
+};
+
+const getSearchHistory = () => {
+  try {
+    return JSON.parse(localStorage.getItem('torrent-search-history') || '[]');
+  } catch {
+    return [];
+  }
+};
+
+const saveToSearchHistory = (query, provider) => {
+  if (!query.trim()) return;
+
+  const history = getSearchHistory();
+  const entry = {
+    query: query.trim(),
+    provider,
+    timestamp: Date.now()
+  };
+
+  // Remove duplicate and add to front
+  const filtered = history.filter(h => h.query !== entry.query || h.provider !== entry.provider);
+  const newHistory = [entry, ...filtered].slice(0, 10); // Keep last 10 searches
+
+  localStorage.setItem('torrent-search-history', JSON.stringify(newHistory));
+};
+
 export default function App() {
+  // Initialize state from URL parameters
+  const urlParams = getUrlParams();
+
   // Search state
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState(""); // Category parameter for backend
+  const [q, setQ] = useState(urlParams.q);
+  const [cat, setCat] = useState(urlParams.cat); // Category parameter for backend
   const [rows, setRows] = useState([]);
   const [sendState, setSendState] = useState("");
   const [copiedMagnet, setCopiedMagnet] = useState("");
-  const [provider, setProvider] = useState("prowlarr");
+  const [provider, setProvider] = useState(urlParams.provider);
+  const [searchHistory, setSearchHistory] = useState(getSearchHistory());
   
   // Filter state
   const [filters, setFilters] = useState({
@@ -41,13 +90,48 @@ export default function App() {
     setRows(filteredAndSortedRows);
   }, [filteredAndSortedRows]);
 
+  // Update URL when search params change
+  useEffect(() => {
+    updateUrl(q, provider, cat);
+  }, [q, provider, cat]);
+
+  // Perform search on component mount if URL has search params
+  useEffect(() => {
+    if (urlParams.q) {
+      search(urlParams.q, urlParams.provider, urlParams.cat);
+    }
+  }, []); // Only run once on mount
+
+  // Update search history when it changes in localStorage
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setSearchHistory(getSearchHistory());
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   const totalSeeders = useMemo(
     () => rows.reduce((a, r) => a + (r.seeders ?? 0), 0),
     [rows]
   );
 
   const handleSearch = () => {
-    search(q, provider, cat);
+    if (q.trim()) {
+      saveToSearchHistory(q, provider);
+      setSearchHistory(getSearchHistory()); // Update local state
+      search(q, provider, cat);
+    }
+  };
+
+  const handleHistorySearch = (historyQuery) => {
+    setQ(historyQuery);
+    search(historyQuery, provider, cat);
+  };
+
+  const clearSearchHistory = () => {
+    localStorage.removeItem('torrent-search-history');
+    setSearchHistory([]);
   };
 
   const handleSendToQB = (magnet) => {
@@ -90,6 +174,9 @@ export default function App() {
               loading={loading}
               query={q}
               onQueryChange={setQ}
+              searchHistory={searchHistory}
+              onHistorySearch={handleHistorySearch}
+              onClearHistory={clearSearchHistory}
             />
 
             {error && <div className="error">❌ {error}</div>}
