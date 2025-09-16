@@ -81,8 +81,13 @@ export default function App() {
     sortOrder: "desc" // asc, desc
   });
 
+  // WebTorrent settings
+  const [webTorrentUrl, setWebTorrentUrl] = useState(
+    localStorage.getItem('webtorrent-url') || ''
+  );
+
   // Custom hooks
-  const { loading, error, allResults, search, sendToQB, copyMagnet, resolveMagnet } = useTorrentSearch();
+  const { loading, error, allResults, search, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
   const { availableTrackers, filteredAndSortedRows } = useFiltering(allResults, filters);
 
   // Update rows when filtered results change
@@ -144,6 +149,19 @@ export default function App() {
 
   const handleResolveMagnet = (downloadUrl) => {
     resolveMagnet(downloadUrl, provider, setCopiedMagnet);
+  };
+
+  const handleSendToWebTorrent = (magnet) => {
+    if (!webTorrentUrl.trim()) {
+      alert('Please set your WebTorrent URL in the settings first.');
+      return;
+    }
+    sendToWebTorrent(magnet, webTorrentUrl);
+  };
+
+  const saveWebTorrentUrl = (url) => {
+    setWebTorrentUrl(url);
+    localStorage.setItem('webtorrent-url', url);
   };
 
   return (
@@ -213,9 +231,13 @@ export default function App() {
               onCopyMagnet={handleCopyMagnet}
               onResolveMagnet={handleResolveMagnet}
               onSendToQB={handleSendToQB}
+              onSendToWebTorrent={handleSendToWebTorrent}
+              webTorrentUrl={webTorrentUrl}
+              onWebTorrentUrlChange={saveWebTorrentUrl}
             />
           </div>
         </div>
+
 
         {/* Footer */}
         <div className="footNote">

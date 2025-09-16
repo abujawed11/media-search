@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { extractMagnetMultiMethod } from '../utils/magnetExtractor';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -64,29 +65,74 @@ export function useTorrentSearch() {
     }
   };
 
+  const sendToWebTorrent = async (magnet, webTorrentUrl) => {
+    try {
+      // Option 1: Open WebTorrent site with magnet as URL parameter
+      const url = new URL(webTorrentUrl);
+      url.searchParams.set('magnet', magnet);
+      window.open(url.toString(), '_blank');
+
+      return true;
+    } catch (e) {
+      // Option 2: Try to post message to WebTorrent site if it's already open
+      try {
+        const webTorrentWindow = window.open(webTorrentUrl, 'webtorrent');
+        if (webTorrentWindow) {
+          // Wait a moment for page to load, then post message
+          setTimeout(() => {
+            webTorrentWindow.postMessage({
+              type: 'ADD_TORRENT',
+              magnet: magnet
+            }, '*');
+          }, 1000);
+          return true;
+        }
+      } catch (postError) {
+        console.error('Failed to send magnet to WebTorrent:', postError);
+        return false;
+      }
+    }
+  };
+
   const resolveMagnet = async (downloadUrl, provider, setCopiedMagnet) => {
     try {
       setCopiedMagnet("resolving...");
-      
-      const response = await fetch(`${API_BASE_URL}/api/resolve-magnet`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ downloadUrl, provider }),
-      });
-      
-      const result = await response.json();
-      if (!response.ok) throw new Error(result?.error || "Failed to resolve");
-      
-      if (result.magnet) {
-        await navigator.clipboard.writeText(result.magnet);
-        setCopiedMagnet(result.magnet);
-        setTimeout(() => setCopiedMagnet(""), 2000);
-      } else {
-        throw new Error("No magnet link returned");
+
+      // Method 1: Try the backend API
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/resolve-magnet`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ downloadUrl, provider }),
+        });
+
+        const result = await response.json();
+        if (response.ok && result.magnet) {
+          await navigator.clipboard.writeText(result.magnet);
+          setCopiedMagnet(result.magnet);
+          setTimeout(() => setCopiedMagnet(""), 2000);
+          return;
+        }
+
+        throw new Error(result?.error || "Backend resolution failed");
+      } catch (backendError) {
+        console.log("Backend magnet resolution failed:", backendError.message);
+
+        // Method 2: Try the improved magnet extraction
+        const magnetFromError = await extractMagnetMultiMethod(downloadUrl);
+
+        if (magnetFromError) {
+          await navigator.clipboard.writeText(magnetFromError);
+          setCopiedMagnet(magnetFromError);
+          setTimeout(() => setCopiedMagnet(""), 2000);
+          return;
+        }
+
+        throw new Error("Could not resolve magnet link through any method");
       }
     } catch (e) {
       setCopiedMagnet("");
-      alert("Failed to resolve magnet link: " + String(e?.message || e));
+      alert("Failed to resolve magnet link: " + String(e?.message || e) + "\n\nTip: Try clicking the 'Direct' link and check browser console for magnet links in error messages.");
     }
   };
 
@@ -97,6 +143,7 @@ export function useTorrentSearch() {
     search,
     sendToQB,
     copyMagnet,
-    resolveMagnet
+    resolveMagnet,
+    sendToWebTorrent
   };
 }
