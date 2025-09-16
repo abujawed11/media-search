@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 export function useTorrentSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -15,7 +17,7 @@ export function useTorrentSearch() {
       const params = new URLSearchParams({ q: query, provider });
       if (category) params.set("cat", category);
       
-      const response = await fetch(`/api/search?${params.toString()}`);
+      const response = await fetch(`${API_BASE_URL}/api/search?${params.toString()}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -34,7 +36,7 @@ export function useTorrentSearch() {
   const sendToQB = async (magnet, setSendState) => {
     try {
       setSendState("sending…");
-      const response = await fetch("/api/qbit/add", {
+      const response = await fetch(`${API_BASE_URL}/api/qbit/add`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ magnet }),
@@ -66,7 +68,7 @@ export function useTorrentSearch() {
     try {
       setCopiedMagnet("resolving...");
       
-      const response = await fetch("/api/resolve-magnet", {
+      const response = await fetch(`${API_BASE_URL}/api/resolve-magnet`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ downloadUrl, provider }),
