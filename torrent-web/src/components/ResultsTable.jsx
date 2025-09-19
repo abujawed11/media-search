@@ -88,19 +88,19 @@ export default function ResultsTable({
     e.preventDefault();
 
     console.log('📋 [COPY ERROR] Starting error monitoring for:', torrentUrl);
-
-    try {
-      const magnet = await copyMagnetFromError(torrentUrl);
-      if (magnet) {
-        onCopyMagnet(magnet);
-        alert('✅ Magnet link captured from error and copied to clipboard!');
-      } else {
-        alert('❌ No "Failed to launch" error detected. Try clicking the link manually and check console.');
-      }
-    } catch (error) {
-      console.error('Error during error capture:', error);
-      alert('❌ Error during capture. Try the manual method.');
-    }
+    const magnet = await copyMagnetFromError(torrentUrl)
+    // try {
+    //   const magnet = await copyMagnetFromError(torrentUrl);
+    //   if (magnet) {
+    //     onCopyMagnet(magnet);
+    //     alert('✅ Magnet link captured from error and copied to clipboard!');
+    //   } else {
+    //     alert('❌ No "Failed to launch" error detected. Try clicking the link manually and check console.');
+    //   }
+    // } catch (error) {
+    //   console.error('Error during error capture:', error);
+    //   alert('❌ Error during capture. Try the manual method.');
+    // }
   };
 
   const handleFileUpload = async (file) => {
@@ -621,7 +621,7 @@ export default function ResultsTable({
             if (typeof r.title === 'object') console.error('Title is object:', r.title);
             if (typeof r.tracker === 'object') console.error('Tracker is object:', r.tracker);
             if (typeof r.published === 'object') console.error('Published is object:', r.published);
-            
+
             return (
               <tr key={i}>
                 <td>{typeof r.title === 'object' ? JSON.stringify(r.title) : r.title}</td>
@@ -634,13 +634,13 @@ export default function ResultsTable({
                   {r.magnet ? (
                     // Already have magnet link
                     <>
-                      <button 
+                      <button
                         onClick={() => onCopyMagnet(r.magnet)}
                         className="link"
                         title="Copy magnet link"
-                        style={{ 
-                          background: 'none', 
-                          border: 'none', 
+                        style={{
+                          background: 'none',
+                          border: 'none',
                           color: '#3b82f6',
                           cursor: 'pointer',
                           marginRight: '8px'
@@ -668,13 +668,13 @@ export default function ResultsTable({
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {r.link.includes('jackett_apikey') || r.link.includes('download?') ? (
                         // This looks like a download URL that might resolve to magnet
-                        <button 
+                        <button
                           onClick={() => onResolveMagnet(r.link)}
                           className="link"
                           title="Resolve magnet link on-demand"
-                          style={{ 
-                            background: 'none', 
-                            border: 'none', 
+                          style={{
+                            background: 'none',
+                            border: 'none',
                             color: '#3b82f6',
                             cursor: 'pointer',
                             padding: 0,
@@ -685,13 +685,13 @@ export default function ResultsTable({
                         </button>
                       ) : (
                         // This looks like a direct .torrent file
-                        <button 
+                        <button
                           onClick={(e) => handleTorrentFileClick(e, r.link)}
                           className="link"
                           title="Extract magnet from .torrent file"
-                          style={{ 
-                            background: 'none', 
-                            border: 'none', 
+                          style={{
+                            background: 'none',
+                            border: 'none',
                             color: '#3b82f6',
                             cursor: 'pointer',
                             padding: 0,
