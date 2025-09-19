@@ -309,4 +309,55 @@ function extractMagnetFromTorrent(torrentBuffer) {
   }
 }
 
+// ---- Proxy torrent downloads for frontend ----
+app.post("/api/proxy-torrent", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "Missing url" });
+
+    console.log(`[PROXY] Downloading torrent from: ${url.substring(0, 100)}...`);
+
+    // Download the .torrent file with timeout and better error handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/x-bittorrent, application/octet-stream, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log(`[PROXY] Response - Status: ${response.status}, Content-Type: ${response.headers.get('content-type')}`);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const torrentData = await response.arrayBuffer();
+    console.log(`[PROXY] Downloaded ${torrentData.byteLength} bytes`);
+
+    // Return the torrent file data with proper headers
+    res.set({
+      'Content-Type': 'application/x-bittorrent',
+      'Content-Length': torrentData.byteLength,
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.send(Buffer.from(torrentData));
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error(`[PROXY] Timeout downloading from: ${req.body.url?.substring(0, 100)}...`);
+      res.status(500).json({ error: "Request timeout", message: "Torrent file download timed out" });
+    } else {
+      console.error(`[PROXY] Error downloading torrent:`, error.message);
+      res.status(500).json({ error: "Failed to download torrent", message: error.message });
+    }
+  }
+});
+
 app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
