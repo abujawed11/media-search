@@ -1,4 +1,4 @@
-import { extractMagnetMultiMethod, extractMagnetFromText } from '../utils/magnetExtractor';
+import { extractMagnetMultiMethod, extractMagnetFromText, extractMagnetFromTorrentFile, parseTorrentFile, copyMagnetFromError } from '../utils/magnetExtractor';
 import { useState } from 'react';
 
 function formatSize(bytes) {
@@ -28,6 +28,7 @@ export default function ResultsTable({
   const [testResult, setTestResult] = useState('');
   const [isTestLoading, setIsTestLoading] = useState(false);
   const [showMagnetTester, setShowMagnetTester] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const testExtractFromText = () => {
     const magnet = extractMagnetFromText(testText);
@@ -83,14 +84,87 @@ export default function ResultsTable({
     }
   };
 
+  const handleCopyErrorClick = async (e, torrentUrl) => {
+    e.preventDefault();
+
+    console.log('📋 [COPY ERROR] Starting error monitoring for:', torrentUrl);
+
+    try {
+      const magnet = await copyMagnetFromError(torrentUrl);
+      if (magnet) {
+        onCopyMagnet(magnet);
+        alert('✅ Magnet link captured from error and copied to clipboard!');
+      } else {
+        alert('❌ No "Failed to launch" error detected. Try clicking the link manually and check console.');
+      }
+    } catch (error) {
+      console.error('Error during error capture:', error);
+      alert('❌ Error during capture. Try the manual method.');
+    }
+  };
+
+  const handleFileUpload = async (file) => {
+    if (!file || !file.name.toLowerCase().endsWith('.torrent')) {
+      setTestResult('❌ Please select a .torrent file');
+      return;
+    }
+
+    try {
+      setIsTestLoading(true);
+      setTestResult('🔄 Parsing .torrent file...');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const magnet = await parseTorrentFile(arrayBuffer);
+
+      if (magnet) {
+        navigator.clipboard.writeText(magnet);
+        onCopyMagnet(magnet);
+        setTestResult(`✅ Magnet extracted and copied: ${magnet.substring(0, 100)}...`);
+      } else {
+        setTestResult('❌ Could not extract magnet from .torrent file');
+      }
+    } catch (error) {
+      console.error('Error parsing torrent file:', error);
+      setTestResult(`❌ Error parsing file: ${error.message}`);
+    } finally {
+      setIsTestLoading(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    const torrentFile = files.find(file => file.name.toLowerCase().endsWith('.torrent'));
+
+    if (torrentFile) {
+      handleFileUpload(torrentFile);
+    } else {
+      setTestResult('❌ No .torrent file found in dropped items');
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
   const handleDirectLinkClick = async (e, torrentUrl) => {
     e.preventDefault();
 
-    console.log('[AUTO-EXTRACT] Starting magnet extraction from:', torrentUrl);
+    console.group('📄 [DIRECT BUTTON] Auto-extraction started');
+    console.log('🔗 URL:', torrentUrl);
+    console.log('🎯 Button: "📄 Direct" (handleDirectLinkClick)');
+    console.log('📝 Description: This button tries to capture magnet links from browser protocol errors');
 
     // Start monitoring console for magnet links
     const originalError = console.error;
-    const originalLog = console.log;
     let capturedMagnet = null;
 
     // Override console methods to capture magnet links
@@ -189,14 +263,22 @@ export default function ResultsTable({
 
     // Final result
     if (capturedMagnet) {
-      onCopyMagnet(capturedMagnet);
-      alert('✅ Magnet link automatically extracted and copied to clipboard!');
+      // Copy to clipboard
+      navigator.clipboard.writeText(capturedMagnet)
+        .then(() => {
+          onCopyMagnet(capturedMagnet);
+          alert('✅ Magnet link automatically captured and copied to clipboard!');
+        })
+        .catch(() => {
+          onCopyMagnet(capturedMagnet);
+          alert('✅ Magnet link captured! (Copy to clipboard failed - check console for manual copy)');
+        });
     } else {
       // Show helpful message and copy torrent URL as fallback
       navigator.clipboard.writeText(torrentUrl).then(() => {
-        alert('⚠️ Could not auto-extract magnet link. Torrent URL copied to clipboard.\n\n💡 Try this manually:\n1. Open the link in a new tab\n2. Check browser console for error messages\n3. Look for magnet: links in the error\n4. Use the Magnet Tester to extract it');
+        alert('⚠️ Could not capture magnet error. Torrent URL copied to clipboard.\n\n💡 Try this manually:\n1. Open the link in a new tab\n2. Check browser console for "Failed to launch" error\n3. Copy the magnet link from the error message');
       }).catch(() => {
-        alert('❌ Could not extract magnet. Try opening the link manually and check console for magnet links.');
+        alert('❌ Could not capture magnet. Try opening the link manually and check console for magnet links.');
       });
     }
   };
@@ -204,14 +286,36 @@ export default function ResultsTable({
   const handleTorrentFileClick = async (e, torrentUrl) => {
     e.preventDefault();
 
-    try {
-      console.log('[FRONTEND] Attempting to extract magnet from .torrent file...');
+    console.group('🧲 [EXTRACT BUTTON] Magnet extraction started');
+    console.log('🔗 URL:', torrentUrl);
+    console.log('🎯 Button: "🧲 Extract" (handleTorrentFileClick)');
+    console.log('📝 Description: This button tries to download and parse .torrent files');
 
-      // Use the improved magnet extraction utility
-      const extractedMagnet = await extractMagnetMultiMethod(torrentUrl);
+    try {
+
+      // Try direct torrent file parsing first for better reliability
+      let extractedMagnet = null;
+
+      if (torrentUrl.toLowerCase().includes('.torrent')) {
+        try {
+          extractedMagnet = await extractMagnetFromTorrentFile(torrentUrl);
+          if (extractedMagnet) {
+            console.log('✅ SUCCESS! Direct torrent parsing worked:', extractedMagnet.substring(0, 100) + '...');
+            onCopyMagnet(extractedMagnet);
+            console.groupEnd();
+            alert('✅ Magnet link extracted from .torrent file and copied to clipboard!');
+            return;
+          }
+        } catch (directError) {
+          console.log('[FRONTEND] Direct torrent parsing failed:', directError.message);
+        }
+      }
+
+      // Use the multi-method extraction as fallback
+      extractedMagnet = await extractMagnetMultiMethod(torrentUrl);
 
       if (extractedMagnet) {
-        console.log('[FRONTEND] Successfully extracted magnet:', extractedMagnet.substring(0, 100) + '...');
+        console.log('[FRONTEND] Successfully extracted magnet via multi-method:', extractedMagnet.substring(0, 100) + '...');
         onCopyMagnet(extractedMagnet);
         alert('✅ Magnet link extracted and copied to clipboard!');
         return;
@@ -243,7 +347,7 @@ export default function ResultsTable({
 
       // Final fallback: copy the torrent URL and give instructions
       await navigator.clipboard.writeText(torrentUrl);
-      alert('⚠️ Could not extract magnet automatically. Torrent URL copied to clipboard.\n\nTip: Click this link in a new tab and check the browser console for magnet links in error messages, then copy them manually.');
+      alert('⚠️ Could not extract magnet automatically. Torrent URL copied to clipboard.\n\n💡 Try these options:\n1. Use "Quick Extract" if browser shows protocol errors\n2. Download .torrent file manually\n3. Check browser console for magnet links');
 
     } catch (error) {
       console.error('[FRONTEND] Error during magnet extraction:', error);
@@ -251,7 +355,7 @@ export default function ResultsTable({
       try {
         await navigator.clipboard.writeText(torrentUrl);
         alert('❌ Could not extract magnet link. Torrent URL copied to clipboard.\n\nTry opening the link manually and look for magnet links in browser console errors.');
-      } catch (clipboardError) {
+      } catch {
         alert('❌ Could not extract magnet link. Please try downloading the .torrent file directly.');
       }
     }
@@ -431,6 +535,50 @@ export default function ResultsTable({
                 </div>
               </div>
 
+              {/* File Upload */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ display: 'block', marginBottom: '3px', fontSize: '11px' }}>Upload .torrent file:</label>
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  style={{
+                    border: `2px dashed ${dragOver ? '#007bff' : '#ccc'}`,
+                    borderRadius: '3px',
+                    padding: '10px',
+                    textAlign: 'center',
+                    background: dragOver ? '#f0f8ff' : '#f9f9f9',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    position: 'relative'
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept=".torrent"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) handleFileUpload(file);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      opacity: 0,
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <div>
+                    📁 Click to select or drag & drop .torrent file
+                  </div>
+                  <small style={{ color: '#666' }}>
+                    {dragOver ? 'Drop the file here!' : 'Instantly convert .torrent to magnet link'}
+                  </small>
+                </div>
+              </div>
+
               {/* Result Display */}
               {testResult && (
                 <div style={{
@@ -568,6 +716,23 @@ export default function ResultsTable({
                         }}
                       >
                         📄 Direct
+                      </button>
+                      {' | '}
+                      <button
+                        onClick={(e) => handleCopyErrorClick(e, r.link)}
+                        className="link"
+                        title="Monitor for 'Failed to launch' error and copy magnet to clipboard"
+                        style={{
+                          fontSize: '0.8rem',
+                          background: 'none',
+                          border: 'none',
+                          color: '#10b981',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          padding: 0
+                        }}
+                      >
+                        📋 Copy Error
                       </button>
                       <button
                         onClick={(e) => {

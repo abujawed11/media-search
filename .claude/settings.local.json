@@ -4,7 +4,10 @@
       "Bash(dir:*)",
       "Bash(findstr:*)",
       "Bash(npm run dev:*)",
-      "Bash(netstat:*)"
+      "Bash(netstat:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run lint)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
