@@ -131,8 +131,77 @@ app.post("/api/qbit/add", async (req, res) => {
   }
 });
 
-// ---- Resolve magnet link on-demand ----
+// ---- Resolve magnet link via URL redirect ----
 app.post("/api/resolve-magnet", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "Missing url" });
+
+    console.log(`[API] Resolving magnet from URL: ${url.substring(0, 100)}...`);
+
+    // Fetch with redirect: "manual" to capture Location header
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log(`[API] Response status: ${response.status}`);
+    console.log(`[API] Response headers:`, Object.fromEntries(response.headers.entries()));
+
+    // Check for redirect with magnet URL
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('Location');
+      if (location && location.startsWith('magnet:')) {
+        console.log(`[API] Found magnet redirect: ${location.substring(0, 100)}...`);
+        return res.json({ magnet: location });
+      }
+    }
+
+    // If it's a 200 response, check if it's a torrent file
+    if (response.status === 200) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/x-bittorrent') || url.toLowerCase().includes('.torrent')) {
+        try {
+          const torrentBuffer = await response.arrayBuffer();
+          const torrentData = Buffer.from(torrentBuffer);
+          const magnet = extractMagnetFromTorrent(torrentData);
+
+          if (magnet) {
+            console.log(`[API] Extracted magnet from torrent file: ${magnet.substring(0, 100)}...`);
+            return res.json({ magnet });
+          }
+        } catch (torrentError) {
+          console.log(`[API] Failed to parse as torrent file: ${torrentError.message}`);
+        }
+      }
+    }
+
+    // No magnet found
+    console.log(`[API] No magnet found for URL: ${url.substring(0, 100)}...`);
+    res.status(404).json({ error: "No magnet link found" });
+
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      console.error(`[API] Timeout resolving magnet from: ${req.body.url?.substring(0, 100)}...`);
+      res.status(500).json({ error: "Request timeout", message: "URL resolution timed out" });
+    } else {
+      console.error(`[API] Error resolving magnet:`, e.message);
+      res.status(500).json({ error: "Failed to resolve magnet", message: String(e?.message || e) });
+    }
+  }
+});
+
+// ---- Resolve magnet link on-demand (provider-specific) ----
+app.post("/api/resolve-magnet-provider", async (req, res) => {
   try {
     const { downloadUrl, provider } = req.body;
     if (!downloadUrl) return res.status(400).json({ error: "Missing downloadUrl" });

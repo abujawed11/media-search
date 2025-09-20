@@ -7,7 +7,9 @@
       "Bash(netstat:*)",
       "Bash(npm install:*)",
       "Bash(npm run lint)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx eslint:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,4 +1,6 @@
-import { extractMagnetMultiMethod, extractMagnetFromText, extractMagnetFromTorrentFile, parseTorrentFile, copyMagnetFromError } from '../utils/magnetExtractor';
+import { extractMagnetMultiMethod, extractMagnetFromText, extractMagnetFromTorrentFile, parseTorrentFile } from '../utils/magnetExtractor';
+import { resolveMagnetViaApi } from '../utils/magnetResolver';
+import { copyText } from '../utils/clipboardHelper';
 import { useState } from 'react';
 
 function formatSize(bytes) {
@@ -30,12 +32,16 @@ export default function ResultsTable({
   const [showMagnetTester, setShowMagnetTester] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
-  const testExtractFromText = () => {
+  const testExtractFromText = async () => {
     const magnet = extractMagnetFromText(testText);
     if (magnet) {
-      navigator.clipboard.writeText(magnet);
-      onCopyMagnet(magnet);
-      setTestResult(`✅ Found and copied: ${magnet.substring(0, 100)}...`);
+      try {
+        await copyText(magnet);
+        onCopyMagnet(magnet);
+        setTestResult(`✅ Found and copied: ${magnet.substring(0, 100)}...`);
+      } catch {
+        setTestResult(`⚠️ Found magnet but copy failed: ${magnet.substring(0, 100)}...`);
+      }
     } else {
       setTestResult('❌ No magnet link found in text');
     }
@@ -50,9 +56,13 @@ export default function ResultsTable({
     try {
       const magnet = await extractMagnetMultiMethod(testUrl);
       if (magnet) {
-        navigator.clipboard.writeText(magnet);
-        onCopyMagnet(magnet);
-        setTestResult(`✅ Found and copied: ${magnet.substring(0, 100)}...`);
+        try {
+          await copyText(magnet);
+          onCopyMagnet(magnet);
+          setTestResult(`✅ Found and copied: ${magnet.substring(0, 100)}...`);
+        } catch {
+          setTestResult(`⚠️ Found magnet but copy failed: ${magnet.substring(0, 100)}...`);
+        }
       } else {
         setTestResult('❌ No magnet link found');
       }
@@ -63,45 +73,84 @@ export default function ResultsTable({
     }
   };
 
-  const testWithSampleError = () => {
+  const testWithSampleError = async () => {
     const sampleError = "Failed to launch 'magnet:?xt=urn:btih:DFC37EDB245D1B4778532903F160A2C08807BBE7&dn=Raees+%282017%29+%5BBluRay%5D+%5B720p%5D+%5BYTS+LT%5D&tr=udp%3A%2F%2Ftracker.coppersurfer.tk%3A6969%2Fannounce' because the scheme does not have a registered handler.";
     setTestText(sampleError);
-    testExtractFromText();
+    await testExtractFromText();
   };
 
-  const quickExtract = () => {
+  const quickExtract = async () => {
     const consoleContent = prompt('Paste the console error message here:');
     if (consoleContent) {
       setTestText(consoleContent);
       const magnet = extractMagnetFromText(consoleContent);
       if (magnet) {
-        navigator.clipboard.writeText(magnet);
-        onCopyMagnet(magnet);
-        setTestResult(`✅ Found and copied: ${magnet.substring(0, 100)}...`);
+        try {
+          await copyText(magnet);
+          onCopyMagnet(magnet);
+          setTestResult(`✅ Found and copied: ${magnet.substring(0, 100)}...`);
+        } catch {
+          setTestResult(`⚠️ Found magnet but copy failed: ${magnet.substring(0, 100)}...`);
+        }
       } else {
         setTestResult('❌ No magnet link found in the text');
       }
     }
   };
 
-  const handleCopyErrorClick = async (e, torrentUrl) => {
-    e.preventDefault();
+  // const handleCopyErrorClick = async (e, torrentUrl) => {
+  //   e.preventDefault();
 
-    console.log('📋 [COPY ERROR] Starting error monitoring for:', torrentUrl);
-    const magnet = await copyMagnetFromError(torrentUrl)
-    // try {
-    //   const magnet = await copyMagnetFromError(torrentUrl);
-    //   if (magnet) {
-    //     onCopyMagnet(magnet);
-    //     alert('✅ Magnet link captured from error and copied to clipboard!');
-    //   } else {
-    //     alert('❌ No "Failed to launch" error detected. Try clicking the link manually and check console.');
-    //   }
-    // } catch (error) {
-    //   console.error('Error during error capture:', error);
-    //   alert('❌ Error during capture. Try the manual method.');
-    // }
-  };
+  //   console.log('📋 [COPY ERROR] Starting error monitoring for:', torrentUrl);
+  //   const magnet = await copyMagnetFromError(torrentUrl)
+  //   // try {
+  //   //   const magnet = await copyMagnetFromError(torrentUrl);
+  //   //   if (magnet) {
+  //   //     onCopyMagnet(magnet);
+  //   //     alert('✅ Magnet link captured from error and copied to clipboard!');
+  //   //   } else {
+  //   //     alert('❌ No "Failed to launch" error detected. Try clicking the link manually and check console.');
+  //   //   }
+  //   // } catch (error) {
+  //   //   console.error('Error during error capture:', error);
+  //   //   alert('❌ Error during capture. Try the manual method.');
+  //   // }
+  // };
+
+
+const handleCopyErrorClick = async (e, torrentUrl) => {
+  e.preventDefault();
+  try {
+    // Try the new server-side magnet resolver first
+    const magnet = await resolveMagnetViaApi(torrentUrl);
+    await copyText(magnet);
+    onCopyMagnet(magnet);
+    alert('✅ Magnet link resolved and copied to clipboard!');
+  } catch (resolverError) {
+    console.log('Server resolver failed, trying fallback methods:', resolverError.message);
+
+    try {
+      // Fallback to existing extraction methods
+      const fallbackMagnet = await extractMagnetMultiMethod(torrentUrl);
+      if (fallbackMagnet) {
+        await copyText(fallbackMagnet);
+        onCopyMagnet(fallbackMagnet);
+        alert('✅ Magnet extracted via fallback and copied!');
+        return;
+      }
+    } catch (fallbackError) {
+      console.log('Fallback extraction failed:', fallbackError.message);
+    }
+
+    // Final fallback: copy the original URL
+    try {
+      await copyText(torrentUrl);
+      alert('⚠️ Could not resolve magnet automatically. Torrent URL copied to clipboard.\n\n💡 Try: Open the link manually and check browser console for magnet links.');
+    } catch {
+      alert('❌ Copy operation failed. Please copy the link manually.');
+    }
+  }
+};
 
   const handleFileUpload = async (file) => {
     if (!file || !file.name.toLowerCase().endsWith('.torrent')) {
@@ -117,9 +166,13 @@ export default function ResultsTable({
       const magnet = await parseTorrentFile(arrayBuffer);
 
       if (magnet) {
-        navigator.clipboard.writeText(magnet);
-        onCopyMagnet(magnet);
-        setTestResult(`✅ Magnet extracted and copied: ${magnet.substring(0, 100)}...`);
+        try {
+          await copyText(magnet);
+          onCopyMagnet(magnet);
+          setTestResult(`✅ Magnet extracted and copied: ${magnet.substring(0, 100)}...`);
+        } catch {
+          setTestResult(`⚠️ Magnet extracted but copy failed: ${magnet.substring(0, 100)}...`);
+        }
       } else {
         setTestResult('❌ Could not extract magnet from .torrent file');
       }
@@ -155,133 +208,174 @@ export default function ResultsTable({
     setDragOver(false);
   };
 
-  const handleDirectLinkClick = async (e, torrentUrl) => {
-    e.preventDefault();
 
-    console.group('📄 [DIRECT BUTTON] Auto-extraction started');
-    console.log('🔗 URL:', torrentUrl);
-    console.log('🎯 Button: "📄 Direct" (handleDirectLinkClick)');
-    console.log('📝 Description: This button tries to capture magnet links from browser protocol errors');
+const handleDirectLinkClick = async (e, torrentUrl) => {
+  e.preventDefault();
+  try {
+    // Try the new server-side magnet resolver first
+    const magnet = await resolveMagnetViaApi(torrentUrl);
+    await copyText(magnet);
+    onCopyMagnet(magnet);
 
-    // Start monitoring console for magnet links
-    const originalError = console.error;
-    let capturedMagnet = null;
-
-    // Override console methods to capture magnet links
-    const captureFunction = (...args) => {
-      const errorMessage = args.join(' ');
-      const magnetMatch = errorMessage.match(/magnet:\?[^'\s"<>&]+/);
-      if (magnetMatch && !capturedMagnet) {
-        capturedMagnet = magnetMatch[0];
-        console.log('[AUTO-EXTRACT] 🎯 Captured magnet from console:', capturedMagnet.substring(0, 100) + '...');
-      }
-      originalError.apply(console, args);
-    };
-
-    console.error = captureFunction;
-
-    // Also capture window errors
-    let windowErrorCaptured = false;
-    const windowErrorHandler = (event) => {
-      if (!windowErrorCaptured && event.message && event.message.includes('magnet:')) {
-        const magnetMatch = event.message.match(/magnet:\?[^'\s"<>&]+/);
-        if (magnetMatch && !capturedMagnet) {
-          capturedMagnet = magnetMatch[0];
-          console.log('[AUTO-EXTRACT] 🎯 Captured magnet from window error:', capturedMagnet.substring(0, 100) + '...');
-          windowErrorCaptured = true;
-        }
-      }
-    };
-
-    window.addEventListener('error', windowErrorHandler);
+    // Optionally open the magnet link (one-click experience)
+    if (magnet) {
+      window.location.assign(magnet);
+    }
+  } catch (resolverError) {
+    console.log('Server resolver failed, trying fallback methods:', resolverError.message);
 
     try {
-      // Method 1: Try using hidden iframe (better than new tab)
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.style.visibility = 'hidden';
-      iframe.style.position = 'absolute';
-      iframe.style.left = '-9999px';
-      iframe.style.width = '1px';
-      iframe.style.height = '1px';
-
-      // Set iframe source to the torrent URL
-      iframe.src = torrentUrl;
-      document.body.appendChild(iframe);
-
-      // Wait for potential errors
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Clean up iframe
-      document.body.removeChild(iframe);
-
-      // If iframe didn't work, try direct navigation approach
-      if (!capturedMagnet) {
-        // Create a temporary link without target="_blank"
-        const tempLink = document.createElement('a');
-        tempLink.href = torrentUrl;
-        tempLink.style.display = 'none';
-        document.body.appendChild(tempLink);
-
-        // Try to click it (this should generate the protocol error in current tab)
-        try {
-          tempLink.click();
-        } catch (err) {
-          // Check if the caught error contains magnet
-          if (err.message && err.message.includes('magnet:')) {
-            const magnetMatch = err.message.match(/magnet:\?[^'\s"<>&]+/);
-            if (magnetMatch && !capturedMagnet) {
-              capturedMagnet = magnetMatch[0];
-              console.log('[AUTO-EXTRACT] 🎯 Captured magnet from click error:', capturedMagnet.substring(0, 100) + '...');
-            }
-          }
-        }
-
-        // Clean up temp link
-        document.body.removeChild(tempLink);
-
-        // Wait a bit more for async errors
-        await new Promise(resolve => setTimeout(resolve, 500));
+      // Fallback to existing extraction methods
+      const extracted = await extractMagnetMultiMethod(torrentUrl);
+      if (extracted) {
+        await copyText(extracted);
+        onCopyMagnet(extracted);
+        alert('✅ Magnet extracted via fallback and copied!');
+        // Open the magnet link
+        window.location.assign(extracted);
+        return;
       }
-
-    } catch (error) {
-      console.log('[AUTO-EXTRACT] Error during extraction:', error.message);
-
-      // Check if this error contains magnet
-      if (error.message && error.message.includes('magnet:')) {
-        const magnetMatch = error.message.match(/magnet:\?[^'\s"<>&]+/);
-        if (magnetMatch && !capturedMagnet) {
-          capturedMagnet = magnetMatch[0];
-          console.log('[AUTO-EXTRACT] 🎯 Captured magnet from try-catch error:', capturedMagnet.substring(0, 100) + '...');
-        }
-      }
-    } finally {
-      // Restore console methods
-      console.error = originalError;
-      window.removeEventListener('error', windowErrorHandler);
+    } catch (fallbackError) {
+      console.log('Fallback extraction failed:', fallbackError.message);
     }
 
-    // Final result
-    if (capturedMagnet) {
-      // Copy to clipboard
-      navigator.clipboard.writeText(capturedMagnet)
-        .then(() => {
-          onCopyMagnet(capturedMagnet);
-          alert('✅ Magnet link automatically captured and copied to clipboard!');
-        })
-        .catch(() => {
-          onCopyMagnet(capturedMagnet);
-          alert('✅ Magnet link captured! (Copy to clipboard failed - check console for manual copy)');
-        });
-    } else {
-      // Show helpful message and copy torrent URL as fallback
-      navigator.clipboard.writeText(torrentUrl).then(() => {
-        alert('⚠️ Could not capture magnet error. Torrent URL copied to clipboard.\n\n💡 Try this manually:\n1. Open the link in a new tab\n2. Check browser console for "Failed to launch" error\n3. Copy the magnet link from the error message');
-      }).catch(() => {
-        alert('❌ Could not capture magnet. Try opening the link manually and check console for magnet links.');
-      });
+    // Final fallback: copy the original URL
+    try {
+      await copyText(torrentUrl);
+      alert('⚠️ Could not resolve magnet automatically. Torrent URL copied to clipboard.');
+    } catch {
+      alert('❌ Copy operation failed. Please copy the link manually.');
     }
-  };
+  }
+};
+
+  // const handleDirectLinkClick = async (e, torrentUrl) => {
+  //   e.preventDefault();
+
+  //   console.group('📄 [DIRECT BUTTON] Auto-extraction started');
+  //   console.log('🔗 URL:', torrentUrl);
+  //   console.log('🎯 Button: "📄 Direct" (handleDirectLinkClick)');
+  //   console.log('📝 Description: This button tries to capture magnet links from browser protocol errors');
+
+  //   // Start monitoring console for magnet links
+  //   const originalError = console.error;
+  //   let capturedMagnet = null;
+
+  //   // Override console methods to capture magnet links
+  //   const captureFunction = (...args) => {
+  //     const errorMessage = args.join(' ');
+  //     const magnetMatch = errorMessage.match(/magnet:\?[^'\s"<>&]+/);
+  //     if (magnetMatch && !capturedMagnet) {
+  //       capturedMagnet = magnetMatch[0];
+  //       console.log('[AUTO-EXTRACT] 🎯 Captured magnet from console:', capturedMagnet.substring(0, 100) + '...');
+  //     }
+  //     originalError.apply(console, args);
+  //   };
+
+  //   console.error = captureFunction;
+
+  //   // Also capture window errors
+  //   let windowErrorCaptured = false;
+  //   const windowErrorHandler = (event) => {
+  //     if (!windowErrorCaptured && event.message && event.message.includes('magnet:')) {
+  //       const magnetMatch = event.message.match(/magnet:\?[^'\s"<>&]+/);
+  //       if (magnetMatch && !capturedMagnet) {
+  //         capturedMagnet = magnetMatch[0];
+  //         console.log('[AUTO-EXTRACT] 🎯 Captured magnet from window error:', capturedMagnet.substring(0, 100) + '...');
+  //         windowErrorCaptured = true;
+  //       }
+  //     }
+  //   };
+
+  //   window.addEventListener('error', windowErrorHandler);
+
+  //   try {
+  //     // Method 1: Try using hidden iframe (better than new tab)
+  //     const iframe = document.createElement('iframe');
+  //     iframe.style.display = 'none';
+  //     iframe.style.visibility = 'hidden';
+  //     iframe.style.position = 'absolute';
+  //     iframe.style.left = '-9999px';
+  //     iframe.style.width = '1px';
+  //     iframe.style.height = '1px';
+
+  //     // Set iframe source to the torrent URL
+  //     iframe.src = torrentUrl;
+  //     document.body.appendChild(iframe);
+
+  //     // Wait for potential errors
+  //     await new Promise(resolve => setTimeout(resolve, 1000));
+
+  //     // Clean up iframe
+  //     document.body.removeChild(iframe);
+
+  //     // If iframe didn't work, try direct navigation approach
+  //     if (!capturedMagnet) {
+  //       // Create a temporary link without target="_blank"
+  //       const tempLink = document.createElement('a');
+  //       tempLink.href = torrentUrl;
+  //       tempLink.style.display = 'none';
+  //       document.body.appendChild(tempLink);
+
+  //       // Try to click it (this should generate the protocol error in current tab)
+  //       try {
+  //         tempLink.click();
+  //       } catch (err) {
+  //         // Check if the caught error contains magnet
+  //         if (err.message && err.message.includes('magnet:')) {
+  //           const magnetMatch = err.message.match(/magnet:\?[^'\s"<>&]+/);
+  //           if (magnetMatch && !capturedMagnet) {
+  //             capturedMagnet = magnetMatch[0];
+  //             console.log('[AUTO-EXTRACT] 🎯 Captured magnet from click error:', capturedMagnet.substring(0, 100) + '...');
+  //           }
+  //         }
+  //       }
+
+  //       // Clean up temp link
+  //       document.body.removeChild(tempLink);
+
+  //       // Wait a bit more for async errors
+  //       await new Promise(resolve => setTimeout(resolve, 500));
+  //     }
+
+  //   } catch (error) {
+  //     console.log('[AUTO-EXTRACT] Error during extraction:', error.message);
+
+  //     // Check if this error contains magnet
+  //     if (error.message && error.message.includes('magnet:')) {
+  //       const magnetMatch = error.message.match(/magnet:\?[^'\s"<>&]+/);
+  //       if (magnetMatch && !capturedMagnet) {
+  //         capturedMagnet = magnetMatch[0];
+  //         console.log('[AUTO-EXTRACT] 🎯 Captured magnet from try-catch error:', capturedMagnet.substring(0, 100) + '...');
+  //       }
+  //     }
+  //   } finally {
+  //     // Restore console methods
+  //     console.error = originalError;
+  //     window.removeEventListener('error', windowErrorHandler);
+  //   }
+
+  //   // Final result
+  //   if (capturedMagnet) {
+  //     // Copy to clipboard
+  //     navigator.clipboard.writeText(capturedMagnet)
+  //       .then(() => {
+  //         onCopyMagnet(capturedMagnet);
+  //         alert('✅ Magnet link automatically captured and copied to clipboard!');
+  //       })
+  //       .catch(() => {
+  //         onCopyMagnet(capturedMagnet);
+  //         alert('✅ Magnet link captured! (Copy to clipboard failed - check console for manual copy)');
+  //       });
+  //   } else {
+  //     // Show helpful message and copy torrent URL as fallback
+  //     navigator.clipboard.writeText(torrentUrl).then(() => {
+  //       alert('⚠️ Could not capture magnet error. Torrent URL copied to clipboard.\n\n💡 Try this manually:\n1. Open the link in a new tab\n2. Check browser console for "Failed to launch" error\n3. Copy the magnet link from the error message');
+  //     }).catch(() => {
+  //       alert('❌ Could not capture magnet. Try opening the link manually and check console for magnet links.');
+  //     });
+  //   }
+  // };
 
   const handleTorrentFileClick = async (e, torrentUrl) => {
     e.preventDefault();
@@ -735,11 +829,14 @@ export default function ResultsTable({
                         📋 Copy Error
                       </button>
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.preventDefault();
-                          navigator.clipboard.writeText(r.link).then(() => {
+                          try {
+                            await copyText(r.link);
                             alert('🔗 Link copied to clipboard!\n\n📋 Manual steps:\n1. Open link in new tab\n2. Check browser console (F12)\n3. Look for error with magnet: link\n4. Use "Quick Extract" button to extract it');
-                          });
+                          } catch {
+                            alert('❌ Failed to copy link to clipboard.');
+                          }
                         }}
                         className="link"
                         title="Copy link and get manual extraction steps"

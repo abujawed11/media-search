@@ -730,3 +730,103 @@ export async function extractMagnetFromTorrentFile(torrentUrl) {
     return null;
   }
 }
+
+//===========================================================================
+
+
+
+/**
+ * Try to read a redirect Location header without following it.
+ * Works only if same-origin or CORS exposes `Location`.
+ * @param {string} url
+ * @returns {Promise<string|null>}
+ */
+export async function tryExtractMagnetFromRedirect(url) {
+  try {
+    const res = await fetch(url, { redirect: 'manual' });
+    const loc = res.headers.get('Location');
+    if (loc && loc.startsWith('magnet:')) return loc;
+  } catch (_) {}
+  return null;
+}
+
+/** Clipboard helper with fallback for http/older browsers */
+export async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_) {}
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', 'true');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  ta.style.pointerEvents = 'none';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch (_) {}
+  document.body.removeChild(ta);
+}
+
+/**
+ * Resolve a magnet from many sources and copy it.
+ * Call this inside a user gesture (click) for best results.
+ *
+ * @param {string|HTMLElement|(() => (string|Promise<string>))} source
+ *   - string: "magnet:..." OR "https://..." that redirects to magnet (same-origin/CORS)
+ *   - element: tries data-magnet or href
+ *   - function: returns/awaits a magnet string
+ * @param {{ openAfter?: boolean }} [opts]
+ * @returns {Promise<string>} copied magnet
+ */
+export async function copyMagnetSmart(source, opts = {}) {
+  const { openAfter = false } = opts;
+
+  // 1) Resolve the magnet value
+  const magnet = await (async () => {
+    if (typeof source === 'function') {
+      const v = await source();
+      if (typeof v === 'string') return v;
+      throw new Error('Resolver function did not return a string');
+    }
+
+    if (source && typeof source === 'object' && 'nodeType' in source) {
+      const el = /** @type {HTMLElement} */(source);
+      const dataMagnet = el.getAttribute('data-magnet') || el.dataset?.magnet;
+      if (dataMagnet?.startsWith('magnet:')) return dataMagnet;
+
+      const href = el.getAttribute?.('href') || '';
+      if (href?.startsWith('magnet:')) return href;
+
+      if (href && /^https?:/i.test(href)) {
+        const redirected = await tryExtractMagnetFromRedirect(href);
+        if (redirected) return redirected;
+      }
+      throw new Error('Could not find magnet in element (data-magnet/href)');
+    }
+
+    if (typeof source === 'string') {
+      if (source.startsWith('magnet:')) return source;
+      if (/^https?:/i.test(source)) {
+        const redirected = await tryExtractMagnetFromRedirect(source);
+        if (redirected) return redirected;
+      }
+      throw new Error('Source must be a magnet: URL or a redirecting http(s) URL');
+    }
+
+    throw new Error('Unsupported source type');
+  })();
+
+  // 2) Copy
+  await copyText(magnet);
+
+  // 3) Optionally try to open after copying (best-effort)
+  if (openAfter) {
+    try { window.location.assign(magnet); } catch (_) {}
+  }
+
+  return magnet;
+}
