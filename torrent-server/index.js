@@ -429,4 +429,7 @@ app.post("/api/proxy-torrent", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
+// app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
+app.listen(PORT, "127.0.0.1", () => {
+  console.log(`API Running on http://127.0.0.1:${PORT}`);
+});
