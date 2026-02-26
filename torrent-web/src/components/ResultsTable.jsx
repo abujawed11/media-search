@@ -31,7 +31,8 @@ export default function ResultsTable({
   const [isTestLoading, setIsTestLoading] = useState(false);
   const [showMagnetTester, setShowMagnetTester] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [resolvingLink, setResolvingLink] = useState(null); // tracks which link is resolving
+  const [resolvingLink, setResolvingLink] = useState(null);
+  const [copiedLink, setCopiedLink] = useState(null);
 
   const testExtractFromText = async () => {
     const magnet = extractMagnetFromText(testText);
@@ -764,19 +765,23 @@ const handleDirectLinkClick = async (e, torrentUrl) => {
                         setResolvingLink(r.link);
                         await onResolveMagnet(r.link);
                         setResolvingLink(null);
+                        setCopiedLink(r.link);
+                        setTimeout(() => setCopiedLink(null), 2000);
                       }}
                       disabled={resolvingLink === r.link}
                       className="link"
                       style={{
                         background: 'none',
                         border: 'none',
-                        color: resolvingLink === r.link ? '#999' : '#3b82f6',
+                        color: copiedLink === r.link ? '#16a34a' : resolvingLink === r.link ? '#999' : '#3b82f6',
                         cursor: resolvingLink === r.link ? 'default' : 'pointer',
                         padding: 0,
-                        textDecoration: 'underline'
+                        textDecoration: 'underline',
+                        transition: 'color 0.2s',
+                        fontWeight: copiedLink === r.link ? 'bold' : 'normal',
                       }}
                     >
-                      {resolvingLink === r.link ? '⏳ Resolving...' : '🧲 Get Magnet'}
+                      {copiedLink === r.link ? '✓ Copied!' : resolvingLink === r.link ? '⏳ Resolving...' : '🧲 Get Magnet'}
                     </button>
                   ) : (
                     <span style={{ color: '#999' }}>No link</span>
