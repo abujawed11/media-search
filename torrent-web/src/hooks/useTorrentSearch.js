@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { extractMagnetMultiMethod } from '../utils/magnetExtractor';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -7,6 +7,7 @@ export function useTorrentSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [allResults, setAllResults] = useState([]);
+  const abortRef = useRef(null);
 
   const fetchIndexers = async (provider) => {
     const response = await fetch(`${API_BASE_URL}/api/indexers?provider=${provider}`);
@@ -15,8 +16,21 @@ export function useTorrentSearch() {
     return data.indexers || [];
   };
 
+  const abortSearch = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setLoading(false);
+  };
+
   const search = async (query, provider, category = "", indexer = "") => {
     if (!query.trim()) return;
+
+    // Cancel any in-flight request before starting a new one
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     try {
       setError(null);
@@ -26,19 +40,21 @@ export function useTorrentSearch() {
       if (category) params.set("cat", category);
       if (indexer) params.set("indexer", indexer);
 
-      const response = await fetch(`${API_BASE_URL}/api/search?${params.toString()}`);
+      const response = await fetch(`${API_BASE_URL}/api/search?${params.toString()}`, { signal });
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data?.error || "Search failed");
       }
-      
+
       setAllResults(data.results || []);
     } catch (e) {
+      if (e.name === 'AbortError') return; // user cancelled — no error shown
       setAllResults([]);
       setError(String(e?.message || e));
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
   };
 
@@ -165,6 +181,7 @@ export function useTorrentSearch() {
     error,
     allResults,
     search,
+    abortSearch,
     clearResults,
     fetchIndexers,
     sendToQB,

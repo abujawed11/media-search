@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import "./App.css";
 
 // Components
@@ -59,18 +59,25 @@ const saveToSearchHistory = (query, provider) => {
 };
 
 export default function App() {
-  // Initialize state from URL parameters
-  const urlParams = getUrlParams();
+  // Capture URL params once at mount — use a ref so re-renders don't lose them
+  const initialParams = useRef(getUrlParams());
+  const { q: initQ, provider: initProvider, cat: initCat, indexer: initIndexerFromUrl } = initialParams.current;
+
+  // Restore indexer: URL param takes priority, then localStorage per provider
+  const initIndexer = initIndexerFromUrl
+    || localStorage.getItem(`torrent-indexer-${initProvider}`)
+    || '';
 
   // Search state
-  const [q, setQ] = useState(urlParams.q);
-  const [cat, setCat] = useState(urlParams.cat); // Category parameter for backend
+  const [q, setQ] = useState(initQ);
+  const [cat, setCat] = useState(initCat);
   const [rows, setRows] = useState([]);
   const [sendState, setSendState] = useState("");
   const [copiedMagnet, setCopiedMagnet] = useState("");
-  const [provider, setProvider] = useState(urlParams.provider);
-  const [indexer, setIndexer] = useState(urlParams.indexer); // restored from URL
-  const [indexers, setIndexers] = useState([]);              // list from provider
+  const [provider, setProvider] = useState(initProvider);
+  const [indexer, setIndexer] = useState(initIndexer);
+  const [indexers, setIndexers] = useState([]);
+  const isFirstProviderMount = useRef(true); // track initial mount vs real provider switch
   const [searchHistory, setSearchHistory] = useState(getSearchHistory());
   
   // Filter state
@@ -91,7 +98,7 @@ export default function App() {
   );
 
   // Custom hooks
-  const { loading, error, allResults, search, clearResults, fetchIndexers, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
+  const { loading, error, allResults, search, abortSearch, clearResults, fetchIndexers, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
   const { availableTrackers, filteredAndSortedRows } = useFiltering(allResults, filters);
 
   // Update rows when filtered results change
@@ -99,9 +106,21 @@ export default function App() {
     setRows(filteredAndSortedRows);
   }, [filteredAndSortedRows]);
 
-  // Fetch indexer list whenever provider changes
+  // Save selected indexer to localStorage whenever it changes
   useEffect(() => {
-    setIndexer('');
+    localStorage.setItem(`torrent-indexer-${provider}`, indexer);
+  }, [indexer, provider]);
+
+  // Fetch indexer list when provider changes
+  useEffect(() => {
+    if (isFirstProviderMount.current) {
+      // On initial mount: don't reset indexer (it was restored from localStorage/URL)
+      isFirstProviderMount.current = false;
+    } else {
+      // Real provider switch: reset indexer, restore from localStorage for new provider
+      const saved = localStorage.getItem(`torrent-indexer-${provider}`) || '';
+      setIndexer(saved);
+    }
     setIndexers([]);
     fetchIndexers(provider)
       .then(setIndexers)
@@ -113,15 +132,14 @@ export default function App() {
     updateUrl(q, provider, cat, indexer);
   }, [q, provider, cat, indexer]);
 
-  // Auto-search on mount — wait for indexers to load first so the selected indexer is valid
+  // Auto-search on mount — wait for indexers to load if a specific indexer is needed
   useEffect(() => {
-    if (!urlParams.q) return;
-    // If a specific indexer was in the URL, wait until the list is populated
-    // so we don't fire an "all indexers" search by accident.
-    // indexers.length > 0 means the list loaded; or if no indexer was saved, search immediately.
-    if (urlParams.indexer && indexers.length === 0) return; // wait for list
-    search(urlParams.q, urlParams.provider, urlParams.cat, urlParams.indexer);
-  }, [indexers]); // re-runs once when indexers load
+    if (!initQ) return;
+    // If a specific indexer was selected, wait until the list has loaded
+    // so we confirm the indexer is valid before searching
+    if (initIndexer && indexers.length === 0) return;
+    search(initQ, initProvider, initCat, initIndexer);
+  }, [indexers]); // re-runs once when indexers finish loading
 
   // Update search history when it changes in localStorage
   useEffect(() => {
@@ -208,6 +226,7 @@ export default function App() {
             {/* Search Controls */}
             <SearchControls
               onSearch={handleSearch}
+              onStopSearch={abortSearch}
               loading={loading}
               query={q}
               onQueryChange={setQ}

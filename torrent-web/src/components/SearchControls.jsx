@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 
 export default function SearchControls({
   onSearch,
+  onStopSearch,
   loading,
   query,
   onQueryChange,
@@ -90,13 +91,24 @@ export default function SearchControls({
         )}
       </div>
 
-      <button
-        onClick={onSearch}
-        disabled={!query || loading}
-        className="btn"
-      >
-        {loading ? "🔍 Searching…" : "🔍 Search"}
-      </button>
+      {loading ? (
+        <button
+          onClick={onStopSearch}
+          className="btn"
+          style={{ background: '#dc3545' }}
+          title="Stop search"
+        >
+          ✕ Stop
+        </button>
+      ) : (
+        <button
+          onClick={onSearch}
+          disabled={!query}
+          className="btn"
+        >
+          🔍 Search
+        </button>
+      )}
       {onClearResults && (
         <button
           onClick={onClearResults}
