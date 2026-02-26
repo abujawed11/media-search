@@ -8,11 +8,16 @@ const { LRUCache } = require("lru-cache");
 const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 
+
+
 // Import providers
 const ProwlarrProvider = require("./providers/prowlarr");
 const JackettProvider = require("./providers/jackett");
 
 const app = express();
+
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: [
     "http://localhost:5173",
