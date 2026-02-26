@@ -701,6 +701,17 @@ export async function extractMagnetFromTorrentFile(torrentUrl) {
         console.log('📊 Proxy response status:', proxyResponse.status, proxyResponse.statusText);
 
         if (proxyResponse.ok) {
+          const ct = proxyResponse.headers.get('content-type') || '';
+          // Backend proxy now returns JSON {"magnet":"..."} when it finds a magnet redirect
+          if (ct.includes('application/json') || ct.includes('text/')) {
+            const json = await proxyResponse.json().catch(() => null);
+            if (json?.magnet) {
+              console.log(`✅ ${proxy.name} returned magnet JSON`);
+              console.groupEnd();
+              return json.magnet;
+            }
+          }
+          // Binary torrent file
           const torrentData = await proxyResponse.arrayBuffer();
           console.log(`✅ ${proxy.name} download successful!`);
           console.log('📦 File size:', torrentData.byteLength, 'bytes');

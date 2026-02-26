@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { extractMagnetMultiMethod } from '../utils/magnetExtractor';
+import { copyText } from '../utils/clipboardHelper';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -121,7 +122,14 @@ export function useTorrentSearch() {
   const resolveMagnet = async (downloadUrl, provider, setCopiedMagnet) => {
     try {
 
-      // Method 1: provider-specific resolver (uses Prowlarr/Jackett redirect logic)
+      // Helper: copy + update state, with textarea fallback for unfocused document
+      const finish = async (magnet) => {
+        await copyText(magnet);
+        setCopiedMagnet(magnet);
+        setTimeout(() => setCopiedMagnet(""), 2000);
+      };
+
+      // Method 1: provider-specific resolver (uses followRedirectsToMagnet on backend)
       try {
         const response = await fetch(`${API_BASE_URL}/api/resolve-magnet-provider`, {
           method: "POST",
@@ -130,16 +138,14 @@ export function useTorrentSearch() {
         });
         const result = await response.json();
         if (response.ok && result.magnet) {
-          await navigator.clipboard.writeText(result.magnet);
-          setCopiedMagnet(result.magnet);
-          setTimeout(() => setCopiedMagnet(""), 2000);
+          await finish(result.magnet);
           return;
         }
       } catch (e) {
         console.log("Provider resolver failed:", e.message);
       }
 
-      // Method 2: generic redirect resolver — field name must be 'url'
+      // Method 2: generic redirect resolver
       try {
         const response = await fetch(`${API_BASE_URL}/api/resolve-magnet`, {
           method: "POST",
@@ -148,25 +154,14 @@ export function useTorrentSearch() {
         });
         const result = await response.json();
         if (response.ok && result.magnet) {
-          await navigator.clipboard.writeText(result.magnet);
-          setCopiedMagnet(result.magnet);
-          setTimeout(() => setCopiedMagnet(""), 2000);
+          await finish(result.magnet);
           return;
         }
       } catch (e) {
         console.log("Generic resolver failed:", e.message);
       }
 
-      // Method 3: client-side extraction fallback
-      const magnetFromError = await extractMagnetMultiMethod(downloadUrl);
-      if (magnetFromError) {
-        await navigator.clipboard.writeText(magnetFromError);
-        setCopiedMagnet(magnetFromError);
-        setTimeout(() => setCopiedMagnet(""), 2000);
-        return;
-      }
-
-      throw new Error("Could not resolve magnet link through any method");
+      throw new Error("Could not resolve magnet link");
     } catch (e) {
       setCopiedMagnet("");
       alert("Failed to resolve magnet link: " + String(e?.message || e));
