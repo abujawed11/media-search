@@ -20,8 +20,44 @@ class JackettProvider {
   async getIndexers() {
     if (!this.url || !this.apiKey) throw new Error("Missing Jackett configuration");
 
+    // NOTE: Jackett's REST indexer list endpoint (/api/v2.0/indexers) may not exist
+    // in all versions. We use the Torznab caps approach instead: query each
+    // configured indexer by fetching the "all" caps and parsing tracker names
+    // from a minimal search, OR we fall back to the torznab indexers caps endpoint.
+    // Most reliable: use /api/v2.0/indexers without any extra params.
     const url = new URL("/api/v2.0/indexers", this.url);
     url.searchParams.set("apikey", this.apiKey);
+    // Do NOT add configured=true — not supported in all Jackett versions
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // If REST indexer list not available, fall back to torznab caps
+    if (!response.ok) {
+      console.log(`[JACKETT] /api/v2.0/indexers returned ${response.status}, trying torznab caps fallback`);
+      return this._getIndexersFromCaps();
+    }
+
+    const data = await response.json();
+    // Filter to only configured indexers (those with a non-empty "configured" field)
+    return data
+      .filter(idx => idx.configured !== false)
+      .map(idx => ({ id: idx.id, name: idx.name || idx.id }));
+  }
+
+  /**
+   * Fallback: get indexer list from Jackett's torznab caps endpoint
+   */
+  async _getIndexersFromCaps() {
+    const url = new URL("/api/v2.0/indexers/all/results/torznab/api", this.url);
+    url.searchParams.set("apikey", this.apiKey);
+    url.searchParams.set("t", "indexers");
     url.searchParams.set("configured", "true");
 
     const controller = new AbortController();
@@ -32,10 +68,12 @@ class JackettProvider {
     } finally {
       clearTimeout(timeoutId);
     }
-    if (!response.ok) throw new Error(`Jackett indexers ${response.status}`);
+    if (!response.ok) throw new Error(`Jackett caps ${response.status}`);
 
-    const data = await response.json();
-    return data.map(idx => ({ id: idx.id, name: idx.name || idx.id }));
+    const xml = await response.text();
+    const parsed = await parseStringPromise(xml, { explicitArray: false, mergeAttrs: true });
+    const indexers = this.toArray(parsed?.indexers?.indexer);
+    return indexers.map(idx => ({ id: idx.id, name: idx.title || idx.id }));
   }
 
   /**
@@ -56,6 +94,8 @@ class JackettProvider {
     url.searchParams.set("t", "search");
     url.searchParams.set("q", query);
     if (category) url.searchParams.set("cat", category);
+    // Cap results at Jackett level — avoids fetching 400+ items when searching all indexers
+    if (!indexerId) url.searchParams.set("limit", "100");
 
     console.log(`[JACKETT] Searching: ${query}`);
 
