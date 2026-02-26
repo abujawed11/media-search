@@ -7,7 +7,8 @@ export default function SearchControls({
   onQueryChange,
   searchHistory = [],
   onHistorySearch,
-  onClearHistory
+  onClearHistory,
+  onClearResults
 }) {
   const [showHistory, setShowHistory] = useState(false);
   const historyRef = useRef(null);
@@ -96,6 +97,16 @@ export default function SearchControls({
       >
         {loading ? "🔍 Searching…" : "🔍 Search"}
       </button>
+      {onClearResults && (
+        <button
+          onClick={onClearResults}
+          className="btn"
+          style={{ background: '#6c757d' }}
+          title="Clear search results"
+        >
+          ✕ Clear
+        </button>
+      )}
 
       {/* Search History Dropdown */}
       {showHistory && searchHistory.length > 0 && (

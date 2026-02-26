@@ -678,29 +678,17 @@ export async function extractMagnetFromTorrentFile(torrentUrl) {
     });
 
     // Try different proxy methods
+    const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
     const proxyMethods = [
       {
-        name: 'VPS Backend Proxy',
-        getUrl: () => 'http://93.127.199.118:4000/api/proxy-torrent',
-        getOptions: () => {
-          console.log('🔗 Sending to VPS proxy:', torrentUrl);
-          return {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: torrentUrl })
-          };
-        }
+        name: 'Backend Proxy',
+        getUrl: () => `${API_BASE}/api/proxy-torrent`,
+        getOptions: () => ({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: torrentUrl })
+        })
       },
-      {
-        name: 'CORS Anywhere',
-        getUrl: () => `https://cors-anywhere.herokuapp.com/${torrentUrl}`,
-        getOptions: () => ({ method: 'GET' })
-      },
-      {
-        name: 'AllOrigins Proxy',
-        getUrl: () => `https://api.allorigins.win/raw?url=${encodeURIComponent(torrentUrl)}`,
-        getOptions: () => ({ method: 'GET' })
-      }
     ];
 
     for (const proxy of proxyMethods) {

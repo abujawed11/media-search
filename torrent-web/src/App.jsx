@@ -17,15 +17,17 @@ const getUrlParams = () => {
   return {
     q: params.get('q') || '',
     provider: params.get('provider') || 'prowlarr',
-    cat: params.get('cat') || ''
+    cat: params.get('cat') || '',
+    indexer: params.get('indexer') || '',
   };
 };
 
-const updateUrl = (q, provider, cat) => {
+const updateUrl = (q, provider, cat, indexer) => {
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (provider && provider !== 'prowlarr') params.set('provider', provider);
   if (cat) params.set('cat', cat);
+  if (indexer) params.set('indexer', indexer);
 
   const newUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
   window.history.replaceState({}, '', newUrl);
@@ -67,8 +69,8 @@ export default function App() {
   const [sendState, setSendState] = useState("");
   const [copiedMagnet, setCopiedMagnet] = useState("");
   const [provider, setProvider] = useState(urlParams.provider);
-  const [indexer, setIndexer] = useState('');   // selected indexer id
-  const [indexers, setIndexers] = useState([]); // list from provider
+  const [indexer, setIndexer] = useState(urlParams.indexer); // restored from URL
+  const [indexers, setIndexers] = useState([]);              // list from provider
   const [searchHistory, setSearchHistory] = useState(getSearchHistory());
   
   // Filter state
@@ -89,7 +91,7 @@ export default function App() {
   );
 
   // Custom hooks
-  const { loading, error, allResults, search, fetchIndexers, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
+  const { loading, error, allResults, search, clearResults, fetchIndexers, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
   const { availableTrackers, filteredAndSortedRows } = useFiltering(allResults, filters);
 
   // Update rows when filtered results change
@@ -108,15 +110,18 @@ export default function App() {
 
   // Update URL when search params change
   useEffect(() => {
-    updateUrl(q, provider, cat);
-  }, [q, provider, cat]);
+    updateUrl(q, provider, cat, indexer);
+  }, [q, provider, cat, indexer]);
 
-  // Perform search on component mount if URL has search params
+  // Auto-search on mount — wait for indexers to load first so the selected indexer is valid
   useEffect(() => {
-    if (urlParams.q) {
-      search(urlParams.q, urlParams.provider, urlParams.cat);
-    }
-  }, []); // Only run once on mount
+    if (!urlParams.q) return;
+    // If a specific indexer was in the URL, wait until the list is populated
+    // so we don't fire an "all indexers" search by accident.
+    // indexers.length > 0 means the list loaded; or if no indexer was saved, search immediately.
+    if (urlParams.indexer && indexers.length === 0) return; // wait for list
+    search(urlParams.q, urlParams.provider, urlParams.cat, urlParams.indexer);
+  }, [indexers]); // re-runs once when indexers load
 
   // Update search history when it changes in localStorage
   useEffect(() => {
@@ -209,6 +214,7 @@ export default function App() {
               searchHistory={searchHistory}
               onHistorySearch={handleHistorySearch}
               onClearHistory={clearSearchHistory}
+              onClearResults={allResults.length > 0 ? clearResults : null}
             />
 
             {error && <div className="error">❌ {error}</div>}
