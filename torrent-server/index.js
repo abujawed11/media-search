@@ -13,7 +13,14 @@ const ProwlarrProvider = require("./providers/prowlarr");
 const JackettProvider = require("./providers/jackett");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://192.168.1.21",
+    "http://192.168.1.21:5173",
+  ]
+}));
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -430,6 +437,6 @@ app.post("/api/proxy-torrent", async (req, res) => {
 });
 
 // app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`API Running on http://127.0.0.1:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`API Running on http://0.0.0.0:${PORT}`);
 });
