@@ -30,17 +30,26 @@ class JackettProvider {
     if (category) url.searchParams.set("cat", category);
 
     console.log(`[JACKETT] Searching: ${query}`);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Jackett ${response.status}`);
-    
-    const xml = await response.text();
-    const parsed = await parseStringPromise(xml, { explicitArray: false, mergeAttrs: true });
-    const items = this.toArray(parsed?.rss?.channel?.item);
-    
-    console.log(`[JACKETT] Got ${items.length} raw results`);
-    if (items.length > 0) {
-      // console.log('[JACKETT] Sample result:', JSON.stringify(items[0], null, 2));
+
+    // --- Timeout on upstream fetch ---
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
     }
+    if (!response.ok) throw new Error(`Jackett ${response.status}`);
+    console.log(`[JACKETT] Got HTTP response, reading body...`);
+
+    const xml = await response.text();
+    console.log(`[JACKETT] Parsing XML (${xml.length} bytes)...`);
+    const parsed = await parseStringPromise(xml, { explicitArray: false, mergeAttrs: true });
+
+    // Cap at 300 to avoid slow post-processing on huge result sets
+    const items = this.toArray(parsed?.rss?.channel?.item).slice(0, 300);
+    console.log(`[JACKETT] Got ${items.length} raw results (capped at 300), normalizing...`);
 
     // Process results and resolve magnet links
     const results = await Promise.all(items.map(async (it) => {
@@ -82,6 +91,7 @@ class JackettProvider {
       });
     }));
 
+    console.log(`[JACKETT] Normalization done, returning ${results.length} results`);
     return results;
   }
 

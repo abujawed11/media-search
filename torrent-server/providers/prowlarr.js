@@ -29,11 +29,23 @@ class ProwlarrProvider {
     if (indexers) url.searchParams.set("indexers", indexers);
 
     console.log(`[PROWLARR] Searching: ${query}`);
-    const response = await fetch(url);
+
+    // --- Timeout on upstream fetch ---
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!response.ok) throw new Error(`Prowlarr ${response.status}`);
-    
-    const data = await response.json();
-    console.log(`[PROWLARR] Got ${data.length} raw results`);
+    console.log(`[PROWLARR] Got HTTP response, reading body...`);
+
+    const raw = await response.json();
+    // Cap at 300 to avoid slow post-processing on huge result sets
+    const data = raw.slice(0, 300);
+    console.log(`[PROWLARR] Got ${raw.length} raw results (capped at ${data.length}), normalizing...`);
 
     // Process results and resolve magnet links
     const results = await Promise.all(data.map(async (x) => {
@@ -66,6 +78,7 @@ class ProwlarrProvider {
       });
     }));
 
+    console.log(`[PROWLARR] Normalization done, returning ${results.length} results`);
     return results;
   }
 

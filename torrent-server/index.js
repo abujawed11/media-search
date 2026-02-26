@@ -63,12 +63,15 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Safety net: rejects after this many ms regardless of what the provider does
+const SEARCH_TIMEOUT_MS = 28_000;
+
 app.get("/api/search", async (req, res) => {
   const q = String(req.query.q || "").trim();
-  const cat = String(req.query.cat || "").trim();          // torznab category (e.g., 2000 Movies, 5000 TV)
-  const indexers = String(req.query.indexers || "").trim(); // prowlarr: comma-separated names
-  const provider = String(req.query.provider || "prowlarr").trim(); // provider selection
-  
+  const cat = String(req.query.cat || "").trim();
+  const indexers = String(req.query.indexers || "").trim();
+  const provider = String(req.query.provider || "prowlarr").trim();
+
   if (!q) return res.status(400).json({ error: "Missing q" });
   if (!providers[provider]) {
     return res.status(400).json({ error: `Invalid provider: ${provider}` });
@@ -76,24 +79,41 @@ app.get("/api/search", async (req, res) => {
 
   const key = `${provider}|${q}|${cat}|${indexers}`;
   const cached = cache.get(key);
-  if (cached) return res.json(cached);
+  if (cached) {
+    console.log(`[API] Cache hit for "${q}" (${provider})`);
+    return res.json(cached);
+  }
+
+  const t0 = Date.now();
+  console.log(`[API] Search start — provider=${provider} q="${q}" cat="${cat}"`);
 
   try {
-    console.log(`[API] Using provider: ${provider}`);
-    
-    // Use the selected provider
     const selectedProvider = providers[provider];
-    let results = [];
-    
-    if (provider === 'prowlarr') {
-      results = await selectedProvider.search(q, cat, indexers);
-    } else if (provider === 'jackett') {
-      results = await selectedProvider.search(q, cat);
+
+    // Race: provider search vs hard timeout
+    let timeoutHandle;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error(`Search timed out after ${SEARCH_TIMEOUT_MS}ms`)),
+        SEARCH_TIMEOUT_MS
+      );
+    });
+
+    let rawResults;
+    try {
+      const searchPromise = provider === 'prowlarr'
+        ? selectedProvider.search(q, cat, indexers)
+        : selectedProvider.search(q, cat);
+      rawResults = await Promise.race([searchPromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutHandle);
     }
+
+    console.log(`[API] Provider returned ${rawResults.length} results in ${Date.now() - t0}ms, deduping...`);
 
     // de-dupe by (normalizedTitle + size); keep highest seeders
     const map = new Map();
-    for (const r of results) {
+    for (const r of rawResults) {
       const k = `${r.normTitle}|${r.size}`;
       if (!map.has(k)) map.set(k, r);
       else if ((r.seeders ?? 0) > (map.get(k).seeders ?? 0)) map.set(k, r);
@@ -101,15 +121,15 @@ app.get("/api/search", async (req, res) => {
     const deduped = [...map.values()].sort((a, b) => (b.seeders ?? 0) - (a.seeders ?? 0));
 
     const payload = { query: q, count: deduped.length, results: deduped };
-    
-    //console.log(`[API RESPONSE] Sending ${deduped.length} results for query: "${q}"`);
-    //console.log(`[API RESPONSE] Sample result:`, JSON.stringify(deduped[0], null, 2));
-    
     cache.set(key, payload);
+
+    console.log(`[API] Sending ${deduped.length} results — total ${Date.now() - t0}ms`);
     res.json(payload);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Search failed", message: String(e?.message || e) });
+    const elapsed = Date.now() - t0;
+    console.error(`[API] Search failed after ${elapsed}ms:`, e.message);
+    const status = e.message.includes('timed out') ? 504 : 500;
+    res.status(status).json({ error: "Search failed", message: String(e?.message || e) });
   }
 });
 
