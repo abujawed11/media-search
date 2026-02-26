@@ -129,8 +129,18 @@ class JackettProvider {
       
       const encUrl = it?.enclosure?.url;
       const link = typeof it?.link === "string" ? it.link : null;
-      let magnet = link?.startsWith("magnet:") ? link : encUrl?.startsWith("magnet:") ? encUrl : null;
-      const torrent = encUrl && encUrl.startsWith("http") ? encUrl : null;
+
+      // Check torznab:attr for magneturl — many indexers (1337x, RARBG, etc.)
+      // embed the magnet link directly in the XML so no resolution needed
+      const magnetFromAttr = attrs.magneturl || attrs.magnetUrl;
+
+      let magnet = magnetFromAttr?.startsWith("magnet:") ? magnetFromAttr
+        : link?.startsWith("magnet:") ? link
+        : encUrl?.startsWith("magnet:") ? encUrl
+        : null;
+
+      // Only store the download link if we don't already have a magnet
+      const torrent = !magnet && encUrl && encUrl.startsWith("http") ? encUrl : null;
 
       // Skip magnet resolution during search for performance
       // We'll resolve magnets on-demand when user clicks copy button
