@@ -15,15 +15,43 @@ class JackettProvider {
   }
 
   /**
-   * Search torrents using Jackett
+   * List configured indexers
    */
-  async search(query, category = '') {
+  async getIndexers() {
+    if (!this.url || !this.apiKey) throw new Error("Missing Jackett configuration");
+
+    const url = new URL("/api/v2.0/indexers", this.url);
+    url.searchParams.set("apikey", this.apiKey);
+    url.searchParams.set("configured", "true");
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (!response.ok) throw new Error(`Jackett indexers ${response.status}`);
+
+    const data = await response.json();
+    return data.map(idx => ({ id: idx.id, name: idx.name || idx.id }));
+  }
+
+  /**
+   * Search torrents using Jackett
+   * @param {string} query
+   * @param {string} category
+   * @param {string} indexerId  — specific indexer id, or '' for all
+   */
+  async search(query, category = '', indexerId = '') {
     if (!this.url || !this.apiKey) {
       throw new Error("Missing Jackett configuration");
     }
 
-    // Jackett Torznab XML (all indexers)
-    const url = new URL("/api/v2.0/indexers/all/results/torznab/api", this.url);
+    // Use specific indexer path, or 'all' to search everything
+    const indexerPath = indexerId || 'all';
+    const url = new URL(`/api/v2.0/indexers/${indexerPath}/results/torznab/api`, this.url);
     url.searchParams.set("apikey", this.apiKey);
     url.searchParams.set("t", "search");
     url.searchParams.set("q", query);

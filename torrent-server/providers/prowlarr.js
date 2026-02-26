@@ -14,9 +14,36 @@ class ProwlarrProvider {
   }
 
   /**
-   * Search torrents using Prowlarr
+   * List configured indexers
    */
-  async search(query, category = '', indexers = '') {
+  async getIndexers() {
+    if (!this.url || !this.apiKey) throw new Error("Missing Prowlarr configuration");
+
+    const url = new URL("/api/v1/indexer", this.url);
+    url.searchParams.set("apikey", this.apiKey);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (!response.ok) throw new Error(`Prowlarr indexers ${response.status}`);
+
+    const data = await response.json();
+    return data.map(idx => ({ id: String(idx.id), name: idx.name }));
+  }
+
+  /**
+   * Search torrents using Prowlarr
+   * @param {string} query
+   * @param {string} category
+   * @param {string} indexers   — legacy comma-separated names (unused when indexerId set)
+   * @param {string} indexerId  — specific indexer numeric id, or '' for all
+   */
+  async search(query, category = '', indexers = '', indexerId = '') {
     if (!this.url || !this.apiKey) {
       throw new Error("Missing Prowlarr configuration");
     }
@@ -26,7 +53,9 @@ class ProwlarrProvider {
     url.searchParams.set("query", query);
     url.searchParams.set("type", "search");
     if (category) url.searchParams.set("categories", category);
-    if (indexers) url.searchParams.set("indexers", indexers);
+    // Prefer specific indexer id; fall back to legacy multi-indexer filter
+    if (indexerId) url.searchParams.set("indexerIds", indexerId);
+    else if (indexers) url.searchParams.set("indexers", indexers);
 
     console.log(`[PROWLARR] Searching: ${query}`);
 

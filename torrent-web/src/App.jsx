@@ -67,6 +67,8 @@ export default function App() {
   const [sendState, setSendState] = useState("");
   const [copiedMagnet, setCopiedMagnet] = useState("");
   const [provider, setProvider] = useState(urlParams.provider);
+  const [indexer, setIndexer] = useState('');   // selected indexer id
+  const [indexers, setIndexers] = useState([]); // list from provider
   const [searchHistory, setSearchHistory] = useState(getSearchHistory());
   
   // Filter state
@@ -87,13 +89,22 @@ export default function App() {
   );
 
   // Custom hooks
-  const { loading, error, allResults, search, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
+  const { loading, error, allResults, search, fetchIndexers, sendToQB, copyMagnet, resolveMagnet, sendToWebTorrent } = useTorrentSearch();
   const { availableTrackers, filteredAndSortedRows } = useFiltering(allResults, filters);
 
   // Update rows when filtered results change
   useEffect(() => {
     setRows(filteredAndSortedRows);
   }, [filteredAndSortedRows]);
+
+  // Fetch indexer list whenever provider changes
+  useEffect(() => {
+    setIndexer('');
+    setIndexers([]);
+    fetchIndexers(provider)
+      .then(setIndexers)
+      .catch(() => setIndexers([]));
+  }, [provider]);
 
   // Update URL when search params change
   useEffect(() => {
@@ -124,14 +135,14 @@ export default function App() {
   const handleSearch = () => {
     if (q.trim()) {
       saveToSearchHistory(q, provider);
-      setSearchHistory(getSearchHistory()); // Update local state
-      search(q, provider, cat);
+      setSearchHistory(getSearchHistory());
+      search(q, provider, cat, indexer);
     }
   };
 
   const handleHistorySearch = (historyQuery) => {
     setQ(historyQuery);
-    search(historyQuery, provider, cat);
+    search(historyQuery, provider, cat, indexer);
   };
 
   const clearSearchHistory = () => {
@@ -179,6 +190,9 @@ export default function App() {
           <FilterSidebar
             provider={provider}
             onProviderChange={setProvider}
+            indexers={indexers}
+            indexer={indexer}
+            onIndexerChange={setIndexer}
             filters={filters}
             onFiltersChange={setFilters}
             availableTrackers={availableTrackers}

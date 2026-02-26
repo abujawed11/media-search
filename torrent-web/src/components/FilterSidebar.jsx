@@ -1,9 +1,12 @@
-export default function FilterSidebar({ 
-  provider, 
-  onProviderChange, 
-  filters, 
-  onFiltersChange, 
-  availableTrackers 
+export default function FilterSidebar({
+  provider,
+  onProviderChange,
+  indexers,
+  indexer,
+  onIndexerChange,
+  filters,
+  onFiltersChange,
+  availableTrackers
 }) {
   const updateFilter = (key, value) => {
     onFiltersChange({ ...filters, [key]: value });
@@ -47,6 +50,26 @@ export default function FilterSidebar({
             </label>
           </div>
         </div>
+      </div>
+
+      {/* Indexer selector */}
+      <div className="provider-switch" style={{ marginTop: '1rem' }}>
+        <h3>🗂 Indexer</h3>
+        <select
+          className="select"
+          value={indexer}
+          onChange={(e) => onIndexerChange(e.target.value)}
+        >
+          <option value="">All indexers</option>
+          {indexers.map(idx => (
+            <option key={idx.id} value={idx.id}>{idx.name}</option>
+          ))}
+        </select>
+        {indexers.length === 0 && (
+          <small style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '0.3rem', display: 'block' }}>
+            Loading indexers...
+          </small>
+        )}
       </div>
 
       {/* Filters */}

@@ -8,16 +8,24 @@ export function useTorrentSearch() {
   const [error, setError] = useState(null);
   const [allResults, setAllResults] = useState([]);
 
-  const search = async (query, provider, category = "") => {
+  const fetchIndexers = async (provider) => {
+    const response = await fetch(`${API_BASE_URL}/api/indexers?provider=${provider}`);
+    if (!response.ok) throw new Error("Failed to fetch indexers");
+    const data = await response.json();
+    return data.indexers || [];
+  };
+
+  const search = async (query, provider, category = "", indexer = "") => {
     if (!query.trim()) return;
 
     try {
       setError(null);
       setLoading(true);
-      
+
       const params = new URLSearchParams({ q: query, provider });
       if (category) params.set("cat", category);
-      
+      if (indexer) params.set("indexer", indexer);
+
       const response = await fetch(`${API_BASE_URL}/api/search?${params.toString()}`);
       const data = await response.json();
       
@@ -141,6 +149,7 @@ export function useTorrentSearch() {
     error,
     allResults,
     search,
+    fetchIndexers,
     sendToQB,
     copyMagnet,
     resolveMagnet,

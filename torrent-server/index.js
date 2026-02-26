@@ -53,6 +53,20 @@ const cache = new LRUCache({ max: 500, ttl: 60_000 });
 const limiter = rateLimit({ windowMs: 60_000, max: 60 });
 app.use("/api/", limiter);
 
+// ---- List indexers for a provider ----
+app.get("/api/indexers", async (req, res) => {
+  const provider = String(req.query.provider || "prowlarr").trim();
+  if (!providers[provider]) return res.status(400).json({ error: `Invalid provider: ${provider}` });
+
+  try {
+    const indexers = await providers[provider].getIndexers();
+    res.json({ indexers });
+  } catch (e) {
+    console.error(`[API] Failed to fetch indexers for ${provider}:`, e.message);
+    res.status(500).json({ error: "Failed to fetch indexers", message: String(e?.message || e) });
+  }
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({ 
     ok: true, 
@@ -70,6 +84,7 @@ app.get("/api/search", async (req, res) => {
   const q = String(req.query.q || "").trim();
   const cat = String(req.query.cat || "").trim();
   const indexers = String(req.query.indexers || "").trim();
+  const indexer = String(req.query.indexer || "").trim(); // single indexer id
   const provider = String(req.query.provider || "prowlarr").trim();
 
   if (!q) return res.status(400).json({ error: "Missing q" });
@@ -77,7 +92,7 @@ app.get("/api/search", async (req, res) => {
     return res.status(400).json({ error: `Invalid provider: ${provider}` });
   }
 
-  const key = `${provider}|${q}|${cat}|${indexers}`;
+  const key = `${provider}|${q}|${cat}|${indexer || indexers}`;
   const cached = cache.get(key);
   if (cached) {
     console.log(`[API] Cache hit for "${q}" (${provider})`);
@@ -85,7 +100,7 @@ app.get("/api/search", async (req, res) => {
   }
 
   const t0 = Date.now();
-  console.log(`[API] Search start — provider=${provider} q="${q}" cat="${cat}"`);
+  console.log(`[API] Search start - provider=${provider} q="${q}" cat="${cat}" indexer="${indexer || 'all'}"`);
 
   try {
     const selectedProvider = providers[provider];
@@ -102,8 +117,8 @@ app.get("/api/search", async (req, res) => {
     let rawResults;
     try {
       const searchPromise = provider === 'prowlarr'
-        ? selectedProvider.search(q, cat, indexers)
-        : selectedProvider.search(q, cat);
+        ? selectedProvider.search(q, cat, indexers, indexer)
+        : selectedProvider.search(q, cat, indexer);
       rawResults = await Promise.race([searchPromise, timeoutPromise]);
     } finally {
       clearTimeout(timeoutHandle);
