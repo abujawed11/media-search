@@ -67,6 +67,40 @@ app.get("/api/indexers", async (req, res) => {
   }
 });
 
+// ---- Background pre-fetch magnets for a list of download URLs ----
+// Called right after search results load. Fires resolution jobs in the
+// background so magnets are cached by the time user clicks "Get Magnet".
+app.post("/api/prefetch-magnets", (req, res) => {
+  const items = req.body?.items; // [{ downloadUrl, provider }]
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "Missing items array" });
+  }
+
+  // Respond immediately — don't make the client wait
+  res.json({ started: items.length });
+
+  // Fire background resolution for each item (no await)
+  let queued = 0;
+  for (const { downloadUrl, provider } of items) {
+    if (!downloadUrl || !providers[provider]) continue;
+    queued++;
+    // Stagger by 300ms each so we don't hammer the indexer all at once
+    setTimeout(() => {
+      providers[provider].resolveDownloadUrlToMagnet(downloadUrl)
+        .then(magnet => {
+          if (magnet) {
+            console.log(`[PREFETCH] ✅ Cached magnet for: ${downloadUrl.substring(0, 80)}...`);
+          } else {
+            console.log(`[PREFETCH] ❌ Could not resolve: ${downloadUrl.substring(0, 80)}...`);
+          }
+        })
+        .catch(e => console.log(`[PREFETCH] Error: ${e.message}`));
+    }, queued * 300);
+  }
+
+  console.log(`[PREFETCH] Started ${queued} background resolution jobs`);
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({ 
     ok: true, 

@@ -48,9 +48,24 @@ export function useTorrentSearch() {
         throw new Error(data?.error || "Search failed");
       }
 
-      setAllResults(data.results || []);
+      const results = data.results || [];
+      setAllResults(results);
+
+      // Fire-and-forget: pre-fetch magnets for results that need resolution
+      const needsResolve = results
+        .filter(r => !r.magnet && r.link)
+        .map(r => ({ downloadUrl: r.link, provider }));
+
+      if (needsResolve.length > 0) {
+        fetch(`${API_BASE_URL}/api/prefetch-magnets`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ items: needsResolve }),
+        }).catch(() => {}); // ignore errors — this is best-effort
+        console.log(`[PREFETCH] Queued ${needsResolve.length} background magnet resolutions`);
+      }
     } catch (e) {
-      if (e.name === 'AbortError') return; // user cancelled — no error shown
+      if (e.name === 'AbortError') return;
       setAllResults([]);
       setError(String(e?.message || e));
     } finally {
