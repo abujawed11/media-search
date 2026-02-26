@@ -120,6 +120,20 @@ class JackettProvider {
     const items = this.toArray(parsed?.rss?.channel?.item).slice(0, 300);
     console.log(`[JACKETT] Got ${items.length} raw results (capped at 300), normalizing...`);
 
+    // Dump raw fields of first result so we can see what the indexer provides
+    if (items.length > 0) {
+      const sample = items[0];
+      const sampleAttrs = this.toArray(sample["torznab:attr"]).reduce((a, b) => {
+        if (b?.name) a[b.name] = b.value;
+        return a;
+      }, {});
+      console.log(`[JACKETT] 🔍 First result raw fields:`);
+      console.log(`          title    = ${String(sample?.title || '').substring(0, 60)}`);
+      console.log(`          link     = ${String(sample?.link || '').substring(0, 100)}`);
+      console.log(`          enclosure= ${String(sample?.enclosure?.url || '').substring(0, 100)}`);
+      console.log(`          attrs    = ${JSON.stringify(sampleAttrs)}`);
+    }
+
     // Process results and resolve magnet links
     const results = await Promise.all(items.map(async (it) => {
       const attrs = this.toArray(it["torznab:attr"]).reduce((a, b) => {
@@ -170,7 +184,23 @@ class JackettProvider {
       });
     }));
 
-    console.log(`[JACKETT] Normalization done, returning ${results.length} results`);
+    // ── Debug: summarise what we got from this indexer ──────────────────────
+    const withMagnet    = results.filter(r => r.magnet).length;
+    const withLink      = results.filter(r => r.link && !r.magnet).length;
+    const withNothing   = results.filter(r => !r.magnet && !r.link).length;
+
+    console.log(`[JACKETT] ✅ Done — ${results.length} results | `+
+      `🧲 magnet ready: ${withMagnet} | 🔗 needs resolve: ${withLink} | ❌ no link: ${withNothing}`);
+
+    // Print first 3 results so you can see the raw fields
+    results.slice(0, 3).forEach((r, i) => {
+      console.log(`[JACKETT] [${i+1}] "${r.title.substring(0,60)}"`);
+      console.log(`         tracker=${r.tracker} | seeds=${r.seeders} | size=${r.size}`);
+      console.log(`         magnet=${r.magnet ? r.magnet.substring(0,80)+'...' : 'null'}`);
+      console.log(`         link=${r.link ? r.link.substring(0,80)+'...' : 'null'}`);
+    });
+    // ────────────────────────────────────────────────────────────────────────
+
     return results;
   }
 

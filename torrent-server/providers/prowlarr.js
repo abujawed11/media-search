@@ -108,7 +108,22 @@ class ProwlarrProvider {
       });
     }));
 
-    console.log(`[PROWLARR] Normalization done, returning ${results.length} results`);
+    // ── Debug: summarise what we got from this indexer ──────────────────────
+    const withMagnet  = results.filter(r => r.magnet).length;
+    const withLink    = results.filter(r => r.link && !r.magnet).length;
+    const withNothing = results.filter(r => !r.magnet && !r.link).length;
+
+    console.log(`[PROWLARR] ✅ Done — ${results.length} results | `+
+      `🧲 magnet ready: ${withMagnet} | 🔗 needs resolve: ${withLink} | ❌ no link: ${withNothing}`);
+
+    results.slice(0, 3).forEach((r, i) => {
+      console.log(`[PROWLARR] [${i+1}] "${r.title.substring(0,60)}"`);
+      console.log(`           tracker=${r.tracker} | seeds=${r.seeders} | size=${r.size}`);
+      console.log(`           magnet=${r.magnet ? r.magnet.substring(0,80)+'...' : 'null'}`);
+      console.log(`           link=${r.link ? r.link.substring(0,80)+'...' : 'null'}`);
+    });
+    // ────────────────────────────────────────────────────────────────────────
+
     return results;
   }
 
