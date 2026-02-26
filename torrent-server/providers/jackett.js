@@ -5,6 +5,10 @@ const { followRedirectsToMagnet } = require("./utils");
 // magnet resolution cache (5 minutes)
 const magnetCache = new LRUCache({ max: 1000, ttl: 300_000 });
 
+// in-flight map: downloadUrl → Promise<string|null>
+// Prevents duplicate Jackett requests when prefetch + on-demand click race
+const inFlight = new Map();
+
 /**
  * Jackett search provider
  */
@@ -210,27 +214,44 @@ class JackettProvider {
    * before Node.js fetch tries (and fails) to fetch the magnet: protocol.
    */
   async resolveDownloadUrlToMagnet(downloadUrl) {
+    // 1. Cache hit
     const cached = magnetCache.get(downloadUrl);
     if (cached !== undefined) {
       if (cached) console.log(`[JACKETT] Cache hit: ${downloadUrl.substring(0, 80)}...`);
       return cached;
     }
 
-    console.log(`[JACKETT] Resolving: ${downloadUrl.substring(0, 100)}...`);
-    try {
-      const magnet = await followRedirectsToMagnet(downloadUrl, { timeoutMs: 12_000 });
-      if (magnet) {
-        console.log(`[JACKETT] Resolved magnet: ${magnet.substring(0, 80)}...`);
-      } else {
-        console.log(`[JACKETT] Could not resolve magnet for: ${downloadUrl.substring(0, 80)}`);
-      }
-      magnetCache.set(downloadUrl, magnet);
-      return magnet;
-    } catch (e) {
-      console.log(`[JACKETT] resolveDownloadUrlToMagnet error: ${e.message}`);
-      magnetCache.set(downloadUrl, null);
-      return null;
+    // 2. Already resolving — join the existing promise instead of firing a duplicate request
+    if (inFlight.has(downloadUrl)) {
+      console.log(`[JACKETT] Joining in-flight resolution for: ${downloadUrl.substring(0, 60)}...`);
+      return inFlight.get(downloadUrl);
     }
+
+    // 3. Start a new resolution — 45s timeout so slow indexers (1337x, ~20s) can complete
+    console.log(`[JACKETT] Resolving: ${downloadUrl.substring(0, 100)}...`);
+    const promise = followRedirectsToMagnet(downloadUrl, { timeoutMs: 45_000 })
+      .then(magnet => {
+        if (magnet) {
+          console.log(`[JACKETT] Resolved magnet: ${magnet.substring(0, 80)}...`);
+          magnetCache.set(downloadUrl, magnet); // cache success
+        } else {
+          console.log(`[JACKETT] Could not resolve magnet for: ${downloadUrl.substring(0, 80)}`);
+          magnetCache.set(downloadUrl, null); // definitive failure — Jackett returned nothing
+        }
+        inFlight.delete(downloadUrl);
+        return magnet;
+      })
+      .catch(e => {
+        console.log(`[JACKETT] resolveDownloadUrlToMagnet error: ${e.message}`);
+        inFlight.delete(downloadUrl);
+        // Don't cache timeout/abort errors — let the next call retry
+        const isTimeout = e.message.toLowerCase().includes('abort') || e.message.toLowerCase().includes('timeout');
+        if (!isTimeout) magnetCache.set(downloadUrl, null);
+        return null;
+      });
+
+    inFlight.set(downloadUrl, promise);
+    return promise;
   }
 
   /**
