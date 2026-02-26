@@ -431,47 +431,70 @@ app.post("/api/proxy-torrent", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "Missing url" });
 
-    console.log(`[PROXY] Downloading torrent from: ${url.substring(0, 100)}...`);
+    console.log(`[PROXY] Resolving: ${url.substring(0, 100)}...`);
 
-    // Download the .torrent file with timeout and better error handling
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const { followRedirectsToMagnet } = require("./providers/utils");
 
-    const response = await fetch(url, {
-      signal: controller.signal,
-      method: 'GET',
-      headers: {
-        'Accept': 'application/x-bittorrent, application/octet-stream, */*',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    // followRedirectsToMagnet handles both magnet-redirect chains and binary .torrent files
+    // We need the raw response for binary data, so do manual redirect first pass ourselves:
+    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+    // Walk redirects manually
+    let currentUrl = url;
+    for (let hop = 0; hop < 12; hop++) {
+      if (currentUrl.startsWith('magnet:')) {
+        console.log(`[PROXY] Resolved to magnet at hop ${hop}`);
+        return res.json({ magnet: currentUrl });
       }
-    });
 
-    clearTimeout(timeoutId);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15_000);
+      let response;
+      try {
+        response = await fetch(currentUrl, {
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: { Accept: 'application/x-bittorrent, application/octet-stream, */*', 'User-Agent': UA }
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
-    console.log(`[PROXY] Response - Status: ${response.status}, Content-Type: ${response.headers.get('content-type')}`);
+      if (response.status >= 300 && response.status < 400) {
+        const loc = response.headers.get('location');
+        if (!loc) break;
+        currentUrl = loc;
+        continue;
+      }
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (response.ok) {
+        const ct = (response.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('bittorrent') || ct.includes('octet-stream')) {
+          const torrentData = await response.arrayBuffer();
+          console.log(`[PROXY] Got binary torrent (${torrentData.byteLength} bytes)`);
+          res.set({ 'Content-Type': 'application/x-bittorrent', 'Content-Length': torrentData.byteLength });
+          return res.send(Buffer.from(torrentData));
+        }
+        // HTML body — scrape for magnet
+        const text = await response.text();
+        const match = text.match(/magnet:\?[^"'\s<>&]+/);
+        if (match) {
+          console.log(`[PROXY] Found magnet in body`);
+          return res.json({ magnet: match[0] });
+        }
+        break;
+      }
+
+      throw new Error(`HTTP ${response.status}`);
     }
 
-    const torrentData = await response.arrayBuffer();
-    console.log(`[PROXY] Downloaded ${torrentData.byteLength} bytes`);
-
-    // Return the torrent file data with proper headers
-    res.set({
-      'Content-Type': 'application/x-bittorrent',
-      'Content-Length': torrentData.byteLength,
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.send(Buffer.from(torrentData));
-
+    res.status(404).json({ error: "No torrent or magnet found at URL" });
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.error(`[PROXY] Timeout downloading from: ${req.body.url?.substring(0, 100)}...`);
-      res.status(500).json({ error: "Request timeout", message: "Torrent file download timed out" });
+      res.status(504).json({ error: "Request timeout" });
     } else {
-      console.error(`[PROXY] Error downloading torrent:`, error.message);
-      res.status(500).json({ error: "Failed to download torrent", message: error.message });
+      console.error(`[PROXY] Error:`, error.message);
+      res.status(500).json({ error: "Failed to proxy torrent", message: error.message });
     }
   }
 });

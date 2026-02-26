@@ -31,6 +31,7 @@ export default function ResultsTable({
   const [isTestLoading, setIsTestLoading] = useState(false);
   const [showMagnetTester, setShowMagnetTester] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [resolvingLink, setResolvingLink] = useState(null); // tracks which link is resolving
 
   const testExtractFromText = async () => {
     const magnet = extractMagnetFromText(testText);
@@ -758,102 +759,25 @@ const handleDirectLinkClick = async (e, torrentUrl) => {
                       )}
                     </>
                   ) : r.link ? (
-                    // Need to resolve magnet or extract from torrent
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {r.link.includes('jackett_apikey') || r.link.includes('download?') ? (
-                        // This looks like a download URL that might resolve to magnet
-                        <button
-                          onClick={() => onResolveMagnet(r.link)}
-                          className="link"
-                          title="Resolve magnet link on-demand"
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#3b82f6',
-                            cursor: 'pointer',
-                            padding: 0,
-                            textDecoration: 'underline'
-                          }}
-                        >
-                          {copiedMagnet === "resolving..." ? '⏳ Resolving...' : '🧲 Get Magnet'}
-                        </button>
-                      ) : (
-                        // This looks like a direct .torrent file
-                        <button
-                          onClick={(e) => handleTorrentFileClick(e, r.link)}
-                          className="link"
-                          title="Extract magnet from .torrent file"
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#3b82f6',
-                            cursor: 'pointer',
-                            padding: 0,
-                            textDecoration: 'underline'
-                          }}
-                        >
-                          🧲 Extract
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => handleDirectLinkClick(e, r.link)}
-                        className="link"
-                        title="Try to auto-extract magnet from .torrent link"
-                        style={{
-                          fontSize: '0.8rem',
-                          background: 'none',
-                          border: 'none',
-                          color: '#3b82f6',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                          padding: 0
-                        }}
-                      >
-                        📄 Direct
-                      </button>
-                      {' | '}
-                      <button
-                        onClick={(e) => handleCopyErrorClick(e, r.link)}
-                        className="link"
-                        title="Monitor for 'Failed to launch' error and copy magnet to clipboard"
-                        style={{
-                          fontSize: '0.8rem',
-                          background: 'none',
-                          border: 'none',
-                          color: '#10b981',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                          padding: 0
-                        }}
-                      >
-                        📋 Copy Error
-                      </button>
-                      <button
-                        onClick={async (e) => {
-                          e.preventDefault();
-                          try {
-                            await copyText(r.link);
-                            alert('🔗 Link copied to clipboard!\n\n📋 Manual steps:\n1. Open link in new tab\n2. Check browser console (F12)\n3. Look for error with magnet: link\n4. Use "Quick Extract" button to extract it');
-                          } catch {
-                            alert('❌ Failed to copy link to clipboard.');
-                          }
-                        }}
-                        className="link"
-                        title="Copy link and get manual extraction steps"
-                        style={{
-                          fontSize: '0.7rem',
-                          background: 'none',
-                          border: 'none',
-                          color: '#6c757d',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                          padding: 0,
-                          marginLeft: '4px'
-                        }}
-                      >
-                        📋 Manual
-                      </button>
-                    </div>
+                    <button
+                      onClick={async () => {
+                        setResolvingLink(r.link);
+                        await onResolveMagnet(r.link);
+                        setResolvingLink(null);
+                      }}
+                      disabled={resolvingLink === r.link}
+                      className="link"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: resolvingLink === r.link ? '#999' : '#3b82f6',
+                        cursor: resolvingLink === r.link ? 'default' : 'pointer',
+                        padding: 0,
+                        textDecoration: 'underline'
+                      }}
+                    >
+                      {resolvingLink === r.link ? '⏳ Resolving...' : '🧲 Get Magnet'}
+                    </button>
                   ) : (
                     <span style={{ color: '#999' }}>No link</span>
                   )}

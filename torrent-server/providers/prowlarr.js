@@ -1,4 +1,5 @@
 const { LRUCache } = require("lru-cache");
+const { followRedirectsToMagnet } = require("./utils");
 
 // magnet resolution cache (5 minutes)
 const magnetCache = new LRUCache({ max: 1000, ttl: 300_000 });
@@ -112,89 +113,29 @@ class ProwlarrProvider {
   }
 
   /**
-   * Resolve Prowlarr download URLs to actual magnet links
+   * Resolve Prowlarr download URLs to actual magnet links.
+   * Uses manual redirect following so magnet: Location headers are caught
+   * before Node.js fetch tries (and fails) to fetch the magnet: protocol.
    */
   async resolveDownloadUrlToMagnet(downloadUrl) {
-    // Check cache first
     const cached = magnetCache.get(downloadUrl);
     if (cached !== undefined) {
-      console.log(`[PROWLARR] Using cached magnet for: ${downloadUrl.substring(0, 100)}...`);
+      if (cached) console.log(`[PROWLARR] Cache hit: ${downloadUrl.substring(0, 80)}...`);
       return cached;
     }
 
+    console.log(`[PROWLARR] Resolving: ${downloadUrl.substring(0, 100)}...`);
     try {
-      console.log(`[PROWLARR] Fetching magnet from: ${downloadUrl.substring(0, 100)}...`);
-      
-      // Add timeout to prevent hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-      
-      const response = await fetch(downloadUrl, { 
-        redirect: 'follow', // Follow redirects but check headers too
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-      });
-      
-      clearTimeout(timeoutId);
-      
-      // Check final URL after redirects
-      if (response.url && response.url.startsWith('magnet:')) {
-        console.log(`[PROWLARR] Found magnet via final URL: ${response.url.substring(0, 80)}...`);
-        magnetCache.set(downloadUrl, response.url);
-        return response.url;
-      }
-      
-      // Check if it's a direct response, look in body
-      if (response.ok) {
-        const text = await response.text();
-        
-        // Look for various magnet link patterns
-        const magnetPatterns = [
-          /magnet:\?[^"'\s<>]+/g,
-          /href=['"]?(magnet:\?[^"'\s>]+)/g,
-          /"(magnet:\?[^"]+)"/g
-        ];
-        
-        for (const pattern of magnetPatterns) {
-          const matches = text.match(pattern);
-          if (matches && matches.length > 0) {
-            let magnet = matches[0];
-            // Clean up the magnet link if it includes href= prefix
-            if (magnet.includes('href=')) {
-              magnet = magnet.replace(/.*href=['"]?/, '').replace(/['"].*/, '');
-            }
-            if (magnet.startsWith('magnet:')) {
-              console.log(`[PROWLARR] Found magnet in response body: ${magnet.substring(0, 80)}...`);
-              magnetCache.set(downloadUrl, magnet);
-              return magnet;
-            }
-          }
-        }
-        
-        // Special handling for certain tracker patterns
-        if (text.includes('limetorrents') || downloadUrl.includes('limetorrents')) {
-          // Look for limetorrents specific patterns
-          const limePattern = /onclick="location\.href='(magnet:[^']+)'/;
-          const limeMatch = text.match(limePattern);
-          if (limeMatch) {
-            console.log(`[PROWLARR] Found limetorrents magnet: ${limeMatch[1].substring(0, 80)}...`);
-            magnetCache.set(downloadUrl, limeMatch[1]);
-            return limeMatch[1];
-          }
-        }
-      }
-      
-      console.log(`[PROWLARR] No magnet found, status: ${response.status}, content-type: ${response.headers.get('content-type')}`);
-      magnetCache.set(downloadUrl, null);
-      return null;
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        console.log(`[PROWLARR] Request timeout resolving magnet`);
+      const magnet = await followRedirectsToMagnet(downloadUrl, { timeoutMs: 15_000 });
+      if (magnet) {
+        console.log(`[PROWLARR] Resolved magnet: ${magnet.substring(0, 80)}...`);
       } else {
-        console.log(`[PROWLARR] Error resolving magnet: ${error.message}`);
+        console.log(`[PROWLARR] Could not resolve magnet for: ${downloadUrl.substring(0, 80)}`);
       }
+      magnetCache.set(downloadUrl, magnet);
+      return magnet;
+    } catch (e) {
+      console.log(`[PROWLARR] resolveDownloadUrlToMagnet error: ${e.message}`);
       magnetCache.set(downloadUrl, null);
       return null;
     }

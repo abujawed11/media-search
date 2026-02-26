@@ -1,5 +1,6 @@
 const { parseStringPromise } = require("xml2js");
 const { LRUCache } = require("lru-cache");
+const { followRedirectsToMagnet } = require("./utils");
 
 // magnet resolution cache (5 minutes)
 const magnetCache = new LRUCache({ max: 1000, ttl: 300_000 });
@@ -164,117 +165,29 @@ class JackettProvider {
   }
 
   /**
-   * Resolve Jackett download URLs to actual magnet links
+   * Resolve Jackett download URLs to actual magnet links.
+   * Uses manual redirect following so magnet: Location headers are caught
+   * before Node.js fetch tries (and fails) to fetch the magnet: protocol.
    */
   async resolveDownloadUrlToMagnet(downloadUrl) {
-    // Check cache first
     const cached = magnetCache.get(downloadUrl);
     if (cached !== undefined) {
-      if (cached === null) {
-        // Don't log for known failed URLs to reduce spam
-        return cached;
-      }
-      console.log(`[JACKETT] Using cached magnet for: ${downloadUrl.substring(0, 100)}...`);
+      if (cached) console.log(`[JACKETT] Cache hit: ${downloadUrl.substring(0, 80)}...`);
       return cached;
     }
 
+    console.log(`[JACKETT] Resolving: ${downloadUrl.substring(0, 100)}...`);
     try {
-      console.log(`[JACKETT] Fetching magnet from: ${downloadUrl.substring(0, 100)}...`);
-      
-      // Add timeout to prevent hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // Reduced to 10 seconds
-      
-      const response = await fetch(downloadUrl, { 
-        redirect: 'follow',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-      });
-      
-      clearTimeout(timeoutId);
-      
-      // If we get 404 or other errors, cache the failure and return quickly
-      if (!response.ok) {
-        console.log(`[JACKETT] Download URL failed with status ${response.status}, caching failure`);
-        magnetCache.set(downloadUrl, null);
-        return null;
-      }
-      
-      // Check final URL after redirects
-      if (response.url && response.url.startsWith('magnet:')) {
-        console.log(`[JACKETT] Found magnet via final URL: ${response.url.substring(0, 80)}...`);
-        magnetCache.set(downloadUrl, response.url);
-        return response.url;
-      }
-      
-      // Check if it's a direct response, look in body
-      const text = await response.text();
-      
-      // Look for various magnet link patterns
-      const magnetPatterns = [
-        /magnet:\?[^"'\s<>]+/g,
-        /href=['\"]?(magnet:\?[^"'\s>]+)/g,
-        /"(magnet:\?[^"]+)"/g
-      ];
-      
-      for (const pattern of magnetPatterns) {
-        const matches = text.match(pattern);
-        if (matches && matches.length > 0) {
-          let magnet = matches[0];
-          // Clean up the magnet link if it includes href= prefix
-          if (magnet.includes('href=')) {
-            magnet = magnet.replace(/.*href=['\"]?/, '').replace(/['\"].*/, '');
-          }
-          if (magnet.startsWith('magnet:')) {
-            console.log(`[JACKETT] Found magnet in response body: ${magnet.substring(0, 80)}...`);
-            magnetCache.set(downloadUrl, magnet);
-            return magnet;
-          }
-        }
-      }
-      
-      // Special handling for certain tracker patterns
-      if (text.includes('limetorrents') || downloadUrl.includes('limetorrents')) {
-        const limePattern = /onclick="location\.href='(magnet:[^']+)'/;
-        const limeMatch = text.match(limePattern);
-        if (limeMatch) {
-          console.log(`[JACKETT] Found limetorrents magnet: ${limeMatch[1].substring(0, 80)}...`);
-          magnetCache.set(downloadUrl, limeMatch[1]);
-          return limeMatch[1];
-        }
-      }
-      
-      // Additional pattern for JavaScript-based magnet links
-      const jsPatterns = [
-        /window\.location\s*=\s*['"](magnet:[^'"]+)['"]/g,
-        /location\.href\s*=\s*['"](magnet:[^'"]+)['"]/g,
-        /document\.location\s*=\s*['"](magnet:[^'"]+)['"]/g
-      ];
-      
-      for (const pattern of jsPatterns) {
-        const matches = text.match(pattern);
-        if (matches && matches.length > 0) {
-          const magnetMatch = matches[0].match(/magnet:[^'"]+/);
-          if (magnetMatch) {
-            console.log(`[JACKETT] Found JS magnet: ${magnetMatch[0].substring(0, 80)}...`);
-            magnetCache.set(downloadUrl, magnetMatch[0]);
-            return magnetMatch[0];
-          }
-        }
-      }
-      
-      // No magnet found, cache the failure
-      magnetCache.set(downloadUrl, null);
-      return null;
-      
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        console.log(`[JACKETT] Request timeout resolving magnet`);
+      const magnet = await followRedirectsToMagnet(downloadUrl, { timeoutMs: 12_000 });
+      if (magnet) {
+        console.log(`[JACKETT] Resolved magnet: ${magnet.substring(0, 80)}...`);
       } else {
-        console.log(`[JACKETT] Error resolving magnet: ${error.message}`);
+        console.log(`[JACKETT] Could not resolve magnet for: ${downloadUrl.substring(0, 80)}`);
       }
+      magnetCache.set(downloadUrl, magnet);
+      return magnet;
+    } catch (e) {
+      console.log(`[JACKETT] resolveDownloadUrlToMagnet error: ${e.message}`);
       magnetCache.set(downloadUrl, null);
       return null;
     }

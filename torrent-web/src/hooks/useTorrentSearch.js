@@ -120,7 +120,6 @@ export function useTorrentSearch() {
 
   const resolveMagnet = async (downloadUrl, provider, setCopiedMagnet) => {
     try {
-      setCopiedMagnet("resolving...");
 
       // Method 1: provider-specific resolver (uses Prowlarr/Jackett redirect logic)
       try {
