@@ -23,7 +23,7 @@ app.use(cors({
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://192.168.1.21",
-    "http://192.168.1.21:5173",
+    "http://192.168.1.21:5173","http://localhost:5175","http://localhost:5174"
   ]
 }));
 app.use(express.json());
